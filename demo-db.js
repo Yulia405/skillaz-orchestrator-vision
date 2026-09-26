@@ -46,6 +46,7 @@
     saveProcess(process){const data=read(),list=data.processes||[],index=list.findIndex(x=>x.id===process.id);if(index>=0)list[index]=process;else list.unshift(process);data.processes=list;write(data)},
     loadWorkflow(id){return read().workflows?.[id]||null},
     saveWorkflow(id,workflow){const data=read();data.workflows=data.workflows||{};data.workflows[id]=workflow;write(data)},
+    deleteProcess(id){const data=read();data.processes=(data.processes||[]).filter(x=>x.id!==id);if(data.workflows)delete data.workflows[id];write(data)},
     reset(){localStorage.removeItem(key)}
   };
 })();
