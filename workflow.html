@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Skillaz Orchestrator · редактор процессов</title>
+  <link rel="stylesheet" href="workflow.css">
+</head>
+<body>
+  <header class="topbar">
+    <a class="icon-btn back" href="processes.html" aria-label="К списку процессов">←</a>
+    <span class="brand-mark">S</span>
+    <div class="process-head">
+      <button class="process-picker" id="processPicker"><span><small>Процесс</small><b id="processTitle">Адаптация нового сотрудника</b></span><i>⌄</i></button>
+      <div class="picker-menu" id="pickerMenu"></div>
+    </div>
+    <div class="mode-switch" role="tablist"><button class="active" data-mode="edit">Процесс</button><button data-mode="settings">Настройка</button><button data-mode="test">Проверка пути</button></div>
+    <div class="top-actions"><span class="saved">Сохранено</span><button class="btn ai" id="aiProcess">✦ Дополнить с AI</button><button class="btn primary">Опубликовать</button></div>
+  </header>
+
+  <main class="workspace" id="workspace">
+    <div class="canvas-hint" id="canvasHint"><b id="processResult">Выход на целевую продуктивность</b><span id="processMeta">7 этапов · 3 ветки · 22 элемента</span></div>
+    <div class="tool-rail" aria-label="Инструменты процесса">
+      <button class="tool active" data-tool="select" title="Выбрать">↖</button><button class="tool" data-tool="hand" title="Перемещать">✋</button><span></span>
+      <button class="tool add" id="addTool" title="Добавить">＋</button><button class="tool" id="commentTool" title="Комментарий">◌</button>
+    </div>
+    <div class="add-menu" id="addMenu"><b>Добавить в процесс</b><button data-add="task"><i>✓</i><span>Задача<small>Действие участника</small></span></button><button data-add="course"><i>▣</i><span>Курс / материал<small>Объект из LMS</small></span></button><button data-add="goal"><i>◎</i><span>Цель<small>Создаёт сотрудник или руководитель</small></span></button><button data-add="checkpoint"><i>◆</i><span>Контрольная точка<small>Собирает результаты</small></span></button><button data-add="decision"><i>◇</i><span>Условие<small>Разводит маршрут</small></span></button></div>
+    <div class="viewport" id="viewport">
+      <div class="world" id="world"><svg class="connections" id="connections" aria-hidden="true"></svg><div id="frames"></div><div id="nodes"></div><div id="edgeActions"></div></div>
+    </div>
+    <aside class="inspector" id="inspector" aria-hidden="true"></aside>
+    <aside class="test-panel" id="testPanel" aria-hidden="true">
+      <div class="panel-kicker">Проверка пути</div><h3>Как соберётся маршрут</h3><label>Ветка сотрудника<select id="testBranch"></select></label><label>Результат контрольной точки<select id="testOutcome"><option value="success">Успешно</option><option value="fail">Не пройдено / есть риск</option></select></label><button class="btn primary" id="runTest">Показать путь</button><div class="test-summary" id="testSummary"></div>
+    </aside>
+    <aside class="settings-panel" id="settingsPanel" aria-hidden="true">
+      <div class="panel-kicker">Настройка процесса</div><h3>Когда и для кого работает процесс</h3>
+      <div class="setting-block"><small>Событие запуска</small><b id="settingEvent">Мастер-система · сотрудник вышел</b></div>
+      <div class="setting-block"><small>Базовая аудитория</small><b>Статус сотрудника = работает</b><span>Тип занятости ≠ внешний исполнитель</span></div>
+      <div class="setting-block"><small>Ветки и роли</small><div id="settingBranches"></div></div>
+      <button class="btn secondary" id="editSettings">Изменить условия и роли</button>
+      <p class="settings-note">На схеме остаются действия и переходы. Условия запуска, выборка и роли собраны здесь и не закрывают рабочее поле.</p>
+    </aside>
+    <div class="zoom"><button id="zoomOut">−</button><b id="zoomValue">70%</b><button id="zoomIn">+</button><button id="fitView" title="Показать весь процесс">⌗</button></div>
+    <div class="minimap"><div id="miniWorld"></div><span>Навигация по процессу</span></div>
+  </main>
+
+  <div class="modal-wrap" id="aiModal" aria-hidden="true">
+    <section class="ai-wizard">
+      <header><span class="ai-badge">✦ Черновик под контролем</span><button class="icon-btn" data-close>×</button><h2>Создать процесс с AI</h2><p>Сначала задайте рамки. AI соберёт этапы, действия и развилки на полном рабочем поле.</p></header>
+      <div class="wizard-steps"><span class="active">1 · Цель и запуск</span><span>2 · Ветки</span><span>3 · Черновик</span></div>
+      <div class="wizard-body" data-step="1"><div class="form-grid"><label>Название процесса<input id="aiName" value="Развитие линейных руководителей"></label><label>Событие запуска<select id="aiTrigger"><option>Назначен руководителем</option><option>Оценка: найден пробел</option><option>Руководитель назначил программу</option></select></label><label class="wide">Целевой результат<input id="aiGoal" value="Самостоятельно управляет командой по стандартам компании"></label><label>Срок результата<select><option>90 дней</option><option>60 дней</option><option>120 дней</option></select></label><label>Участники<select><option>Сотрудник, руководитель, наставник, HR</option><option>Сотрудник и руководитель</option></select></label></div></div>
+      <div class="wizard-body hidden" data-step="2"><h3>Кому нужен разный маршрут</h3><p class="muted">Общая часть назначается всем. Ветки определяют дополнительный путь.</p><div class="branch-cards"><label><input type="checkbox" checked><span><b>Новый руководитель</b><small>Опыт управления: нет</small></span></label><label><input type="checkbox" checked><span><b>Опытный руководитель</b><small>Опыт управления: есть</small></span></label><label><input type="checkbox" checked><span><b>Пробел в people management</b><small>Оценка ниже 70%</small></span></label></div><label class="source-check"><input type="checkbox" checked> Использовать курсы, статьи, тесты и шаблоны задач из каталога Skillaz</label></div>
+      <div class="wizard-body hidden" data-step="3"><div class="draft-stats"><article><b>6</b><span>этапов</span></article><article><b>3</b><span>ветки</span></article><article><b>22</b><span>элемента</span></article><article><b>4</b><span>развилки</span></article></div><div class="draft-flow"><span>Событие</span><i>→</i><span>Общая часть</span><i>→</i><span class="diamond">Условие</span><i>→</i><span>3 ветки</span><i>→</i><span>КТ</span><i>→</i><span>Результат</span></div><p class="review-note"><b>Перед публикацией:</b> администратор проверит каждое предложение, путь каждой ветки и шаблоны уведомлений.</p></div>
+      <footer><button class="btn secondary" data-close>Отмена</button><button class="btn primary" id="wizardNext">Продолжить</button></footer>
+    </section>
+  </div>
+  <div class="modal-wrap" id="catalogModal" aria-hidden="true">
+    <section class="catalog-dialog">
+      <header><div><span class="ai-badge">Библиотека объектов</span><h2 id="catalogTitle">Выберите объект</h2><p>В процесс добавляется ссылка на опубликованный объект или шаблон. Его можно открыть и заменить позже.</p></div><button class="icon-btn" id="catalogClose">×</button></header>
+      <div class="catalog-layout">
+        <nav class="catalog-types" id="catalogTypes"></nav>
+        <main class="catalog-main"><div class="catalog-tools"><input id="catalogSearch" placeholder="Название или ID"><select id="catalogFilter"><option>Все статусы</option><option>Опубликовано</option><option>Черновик</option></select></div><div class="catalog-chips"><button class="active">Все</button><button>Для роли</button><button>Обязательные</button><button>По навыку</button></div><div class="catalog-list" id="catalogList"></div></main>
+      </div>
+      <footer><span>Объект остаётся в своём каталоге, процесс хранит ссылку и настройки назначения.</span><button class="btn secondary" id="catalogCancel">Отмена</button></footer>
+    </section>
+  </div>
+  <div class="toast" id="toast"></div>
+  <script src="workflow.js"></script>
+</body>
+</html>

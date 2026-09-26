@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Skillaz Orchestrator · процессы</title>
+  <link rel="stylesheet" href="processes.css">
+</head>
+<body>
+  <header class="topbar">
+    <a class="back" href="index.html" aria-label="К разделам">←</a><span class="mark">S</span>
+    <div><b>Skillaz Orchestrator</b><small>Редактор процессов</small></div>
+    <div class="actions"><button class="btn ai" id="createAi">✦ Создать с AI</button><button class="btn primary" id="createManual">+ Создать процесс</button></div>
+  </header>
+  <main>
+    <section class="heading"><div><span class="eyebrow">Процессы первой версии</span><h1>Процессы сотрудников</h1><p>Событие запускает процесс, условия подключают нужные ветки, а результаты действий активируют настроенные переходы.</p></div><div class="value"><b>Исполнение workflow</b><span>Оркестратор применяет опубликованные правила, сроки и переходы. AI не управляет ходом процесса.</span></div></section>
+    <section class="filters"><label>Поиск<input id="search" placeholder="Название, событие или результат"></label><label>Статус<select id="status"><option value="all">Все</option><option value="published">Опубликован</option><option value="draft">Черновик</option></select></label><span id="count">4 процесса</span></section>
+    <section class="process-list" id="processList"></section>
+  </main>
+  <div class="modal" id="wizard" aria-hidden="true"><section class="dialog">
+    <header><div><span class="tag" id="wizardTag">Новый процесс</span><h2 id="wizardTitle">Настройте рамки процесса</h2><p>Сначала определите событие, аудиторию и ветки. После этого откроется рабочее поле процесса.</p></div><button class="close" data-close>×</button></header>
+    <nav class="steps"><button class="active" data-step-nav="1">1 · Основное</button><button data-step-nav="2">2 · Условия</button><button data-step-nav="3">3 · Ветки и роли</button><button data-step-nav="4">4 · Проверка</button></nav>
+    <div class="step" data-step="1"><div class="grid"><label>Название<input id="newName" value="Адаптация специалиста продаж"></label><label>Системное событие<select id="newEvent"><option>Мастер-система · сотрудник вышел</option><option>ATS · оффер принят</option><option>Мастер-система · должность изменилась</option><option>Оценка · найден пробел навыка</option><option>Руководитель · назначил программу</option></select></label><label class="wide">Целевой результат<input id="newResult" value="Сотрудник самостоятельно выполняет работу по стандартам компании"></label><label>Контрольный срок<select><option>90 дней</option><option>60 дней</option><option>30 дней</option></select></label><label>Базовый шаблон<select><option>Адаптация · общий маршрут</option><option>Пребординг · до первого дня</option><option>Переход · освоение новой роли</option><option>Обучение · закрытие пробела</option><option>Пустой процесс</option></select></label></div></div>
+    <div class="step hidden" data-step="2"><h3>Кто входит в процесс</h3><div class="rule"><b>Все условия</b><span>Статус сотрудника = работает</span><span>Тип занятости ≠ внешний исполнитель</span></div><button class="add-rule">+ Добавить условие</button><div class="info">Данные приходят из мастер-системы. До публикации можно проверить выборку и конкретный путь без запуска процесса.</div></div>
+    <div class="step hidden" data-step="3"><h3>Дополнительные ветки</h3><div class="branch-list"><article><b>Клиентский офис</b><span>Подразделение входит в: клиентские офисы</span><small>Роли: сотрудник, руководитель, наставник</small></article><article><b>Склад</b><span>Подразделение входит в: складская логистика</span><small>Роли: сотрудник, наставник, проверяющий</small></article><article><b>Доставка</b><span>Должность входит в: курьер, водитель</span><small>Роли: сотрудник, наставник, руководитель</small></article></div><button class="add-rule">+ Добавить ветку</button></div>
+    <div class="step hidden" data-step="4"><div class="summary"><article><small>Запуск</small><b>Сотрудник вышел</b></article><article><small>Аудитория</small><b>2 базовых условия</b></article><article><small>Ветки</small><b>3 варианта маршрута</b></article><article><small>Дальше</small><b>Собрать действия на схеме</b></article></div><div class="ai-note" id="aiNote"><b>AI подготовит черновик:</b> предложит этапы, действия и развилки из разрешённого каталога. Администратор проверит и изменит их на рабочем поле.</div></div>
+    <footer><button class="btn" data-close>Отмена</button><button class="btn primary" id="next">Продолжить</button></footer>
+  </section></div>
+  <script src="processes.js"></script>
+</body>
+</html>
