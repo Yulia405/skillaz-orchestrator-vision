@@ -15,7 +15,7 @@
       <div class="picker-menu" id="pickerMenu"></div>
     </div>
     <div class="mode-switch" role="tablist"><button class="active" data-mode="edit">Процесс</button><button data-mode="settings">Настройка</button><button data-mode="test">Проверка пути</button></div>
-    <div class="top-actions"><span class="saved">Сохранено</span><button class="btn ai" id="aiProcess">✦ Дополнить с AI</button><button class="btn primary">Опубликовать</button></div>
+    <div class="top-actions"><span class="saved">Сохранено локально</span><button class="btn ai" id="aiProcess">✦ Дополнить с AI</button><button class="btn primary" id="publishProcess">Опубликовать</button></div>
   </header>
 
   <main class="workspace" id="workspace">
@@ -24,7 +24,7 @@
       <button class="tool active" data-tool="select" title="Выбрать">↖</button><button class="tool" data-tool="hand" title="Перемещать">✋</button><span></span>
       <button class="tool add" id="addTool" title="Добавить">＋</button><button class="tool" id="commentTool" title="Комментарий">◌</button>
     </div>
-    <div class="add-menu" id="addMenu"><b>Добавить в процесс</b><button data-add="task"><i>✓</i><span>Задача<small>Действие участника</small></span></button><button data-add="course"><i>▣</i><span>Курс / материал<small>Объект из LMS</small></span></button><button data-add="goal"><i>◎</i><span>Цель<small>Создаёт сотрудник или руководитель</small></span></button><button data-add="checkpoint"><i>◆</i><span>Контрольная точка<small>Собирает результаты</small></span></button><button data-add="decision"><i>◇</i><span>Условие<small>Разводит маршрут</small></span></button></div>
+    <div class="add-menu" id="addMenu"><b>Добавить в процесс</b><button data-add="task"><i>✓</i><span>Задача<small>Действие участника</small></span></button><button data-add="action"><i>⚙</i><span>Системное действие<small>Выполняет backend</small></span></button><button data-add="course"><i>▣</i><span>Курс / материал<small>Объект из LMS</small></span></button><button data-add="goal"><i>◎</i><span>Цель<small>Создаёт сотрудник или руководитель</small></span></button><button data-add="checkpoint"><i>◆</i><span>Контрольная точка<small>Собирает результаты</small></span></button><button data-add="decision"><i>◇</i><span>Условие<small>Разводит маршрут</small></span></button></div>
     <div class="viewport" id="viewport">
       <div class="world" id="world"><svg class="connections" id="connections" aria-hidden="true"></svg><div id="frames"></div><div id="nodes"></div><div id="edgeActions"></div></div>
     </div>
@@ -65,6 +65,7 @@
     </section>
   </div>
   <div class="toast" id="toast"></div>
+  <script src="demo-db.js"></script>
   <script src="workflow.js"></script>
 </body>
 </html>
