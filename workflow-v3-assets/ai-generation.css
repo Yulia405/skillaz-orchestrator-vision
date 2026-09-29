@@ -1,0 +1,42 @@
+.ai-canvas-button,.ai-scenario-button{border-color:#a7a0d8;color:#513a9c;background:#f8f6ff;white-space:nowrap}
+.ai-canvas-button:hover,.ai-scenario-button:hover{background:#eee9ff}
+.ai-scenario-button:disabled{opacity:.45;cursor:not-allowed}
+.ai-dialog{width:min(860px,calc(100vw - 32px));max-height:min(90vh,900px);display:flex;flex-direction:column}
+.ai-dialog .dialog-body{overflow:auto;min-height:0}
+.ai-stepbar{display:flex;gap:24px;padding:12px 24px;border-bottom:1px solid var(--line);color:#68798e;font-size:12px}
+.ai-stepbar .active{color:#265ac4;font-weight:700}
+.ai-body{display:grid;gap:16px;padding:20px 24px}
+.ai-disclaimer{margin:0;padding:10px 12px;border-left:3px solid #6d5bc1;background:#f7f5ff;color:#4b5268;font-size:12px;line-height:1.5}
+.ai-section{display:grid;gap:9px;border-bottom:1px solid var(--line);padding-bottom:16px}
+.ai-section h3{font-size:14px;margin:0}
+.ai-section p{font-size:12px;color:#617086;margin:0;line-height:1.45}
+.ai-check-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;max-height:188px;overflow:auto}
+.ai-check-grid label{display:flex;align-items:flex-start;gap:9px;border:1px solid var(--line);padding:9px;background:#fff;cursor:pointer}
+.ai-check-grid input,.ai-source-grid input,.ai-stage-grid input,.ai-history input{margin-top:3px;accent-color:#265ac4;flex:none}
+.ai-check-grid span{min-width:0;display:grid;gap:3px}
+.ai-check-grid b{font-size:12px}
+.ai-check-grid small{font-size:10px;color:#667991;line-height:1.4;max-height:30px;overflow:hidden}
+.ai-stage-grid,.ai-source-grid{display:flex;flex-wrap:wrap;gap:8px}
+.ai-stage-grid label,.ai-source-grid label{display:flex;align-items:center;gap:6px;border:1px solid var(--line);padding:7px 9px;font-size:11px;cursor:pointer}
+.ai-stage-grid small{color:#667991}
+.ai-history{display:flex;gap:10px;align-items:flex-start;padding:11px 12px;background:#f4f9fc;cursor:pointer}
+.ai-history span{display:grid;gap:3px}.ai-history b{font-size:12px}.ai-history small{color:#62748a;font-size:11px;line-height:1.4}
+.ai-error{margin:0;color:#ba3232;font-size:12px;min-height:14px}
+.ai-review-intro{display:flex;justify-content:space-between;gap:16px;align-items:center}
+.ai-review-intro div{display:grid;gap:3px}.ai-review-intro b{font-size:15px}.ai-review-intro span{font-size:11px;color:#64738a}
+.ai-proposals{display:grid;gap:10px;max-height:470px;overflow:auto;padding-right:3px}
+.ai-proposal{display:grid;gap:10px;padding:13px;border:1px solid var(--line);border-left:3px solid #755fbd;background:#fff}
+.ai-proposal-head{display:flex;gap:8px;align-items:center;font-size:11px;color:#486178;cursor:pointer}.ai-proposal-head span{font-weight:700}.ai-proposal-head small{margin-left:auto;color:#677a92}
+.ai-input-label{display:grid;gap:5px;font-size:11px;font-weight:700;color:#334258}
+.ai-input-label input,.ai-input-label textarea{box-sizing:border-box;width:100%;border:1px solid #cbd8e8;border-radius:4px;padding:8px 10px;color:#1d2b3a;background:#fff;font:inherit;font-size:12px}
+.ai-input-label textarea{resize:vertical;line-height:1.4}.ai-day{max-width:150px}
+.ai-links{display:grid;gap:5px;font-size:11px}.ai-links label,.ai-links span{padding:5px 8px;background:#f4f7ff;color:#315da1}.ai-links label{cursor:pointer}.ai-links input{accent-color:#265ac4}.ai-links small{color:#617b98}.ai-empty-link{background:#fff8e9!important;color:#7a5a1b!important}
+.ai-reason{font-size:11px;line-height:1.4;color:#62748a;margin:0}.ai-applied-list{display:grid;gap:6px;padding:12px;border:1px solid #d6cdec;background:#fbfaff}.ai-applied-list>b{font-size:12px}.ai-applied-list>div{display:grid;gap:3px;padding:8px;background:white;border:1px solid #e5dff4}.ai-applied-list strong{font-size:12px}.ai-applied-list small{color:#596b82;font-size:11px}
+@media(max-width:700px){
+  html,body,#app{max-width:100%;overflow-x:hidden}
+  .topbar,.editor-toolbar,.canvas-tools{max-width:100vw;overflow-x:auto;flex:none}
+  .topbar>* ,.editor-toolbar>* ,.canvas-tools>*{flex-shrink:0}
+  .shell,.main,.workspace,.canvas-shell,.canvas-viewport{max-width:100vw;min-width:0}
+  .stepbar{max-width:100vw}
+  .ai-dialog{width:calc(100vw - 16px);max-height:96vh}.ai-body{padding:14px}.ai-check-grid{grid-template-columns:1fr}.ai-stepbar{padding:10px 14px}.ai-review-intro{align-items:flex-start}.ai-proposals{max-height:45vh}.ai-canvas-button{font-size:11px}
+}
