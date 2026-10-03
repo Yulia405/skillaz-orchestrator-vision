@@ -12,8 +12,10 @@
   state.assistantLivePrompt ??= null;
   state.assistantLiveSuggestions ??= [];
   state.assistantLiveHistory ??= [];
+  state.assistantModelHistory ??= [];
   state.assistantBusy ??= false;
   state.assistantError ??= '';
+  state.assistantAskedQuestions ??= [];
 
   const originalStartNewWorkflow = startNewWorkflow;
   const originalHub = hub;
@@ -275,24 +277,67 @@
     state.assistantStep += 1;
   };
 
+  const normalizedEvent = value => {
+    const text = String(value || '').toLowerCase();
+    if (/оффер|кандидат/.test(text)) return 'ATS · оффер принят';
+    if (/должност|перевод|новая роль/.test(text)) return 'Мастер-система · должность изменилась';
+    if (/ручн|администратор/.test(text)) return 'Администратор · ручной запуск';
+    if (/вышел|выход|перв.*день|работ/.test(text)) return 'Мастер-система · сотрудник вышел';
+    return value || '';
+  };
+  const normalizedTiming = value => {
+    const text = String(value || '').toLowerCase();
+    if (/за .*дн|до событ|до выход/.test(text)) return 'За 5 дней до события';
+    if (/следующ|через.*день|после/.test(text)) return 'Через 1 день после события';
+    if (text) return 'В момент события';
+    return '';
+  };
+  const normalizedPath = value => {
+    const text = String(value || '').toLowerCase();
+    if (/разн|вариант|ветк|услов|общ.*част|нескольк.*рол/.test(text)) return 'Общая часть + варианты по условиям';
+    return text ? 'Один общий путь' : '';
+  };
+  const completeLaunchDefaults = () => {
+    const answers = state.assistantAnswers;
+    const transcript = state.assistantLiveHistory.map(message=>message.text).join(' ');
+    if (!answers.scenario) answers.scenario = /оффер|до выход|преборд/i.test(transcript) ? 'Пребординг' : /нов.*рол|перевод/i.test(transcript) ? 'Вход в новую роль' : 'Новый сотрудник';
+    if (!answers.audience) answers.audience = answers.audienceIntent || state.assistantLiveHistory.find(message=>message.role==='user')?.text || 'Выбранные сотрудники';
+    if (!answers.result) answers.result = /курьер|водител|достав/i.test(transcript) ? 'Самостоятельно и безопасно выполняет доставку по стандартам компании' : 'Самостоятельно выполняет ключевые задачи роли';
+    if (!answers.event) answers.event = answers.scenario === 'Пребординг' ? 'ATS · оффер принят' : answers.scenario === 'Вход в новую роль' ? 'Мастер-система · должность изменилась' : 'Мастер-система · сотрудник вышел';
+    if (!answers.timing) answers.timing = answers.scenario === 'Пребординг' ? 'За 5 дней до события' : 'В момент события';
+    if (!answers.pathType) answers.pathType = /курьер.*водител|водител.*курьер|диспетчер|разн|нескольк/i.test(transcript) ? 'Общая часть + варианты по условиям' : 'Один общий путь';
+    answers.event = normalizedEvent(answers.event);
+    answers.timing = normalizedTiming(answers.timing);
+    answers.pathType = normalizedPath(answers.pathType);
+  };
+
   const submitAssistantText = async rawValue => {
     const value = String(rawValue || '').trim();
     if (!value || state.assistantStep > 6 || state.assistantBusy) return;
     state.assistantUserMessages[state.assistantStep] = value;
     state.assistantLiveHistory.push({role:'user',text:value});
+    state.assistantModelHistory.push({role:'user',text:value});
     state.assistantBusy = true; state.assistantError = ''; render();
     try {
       const query = [value,...Object.values(state.assistantAnswers)].join(' ');
       const result = await window.SkillazLiveAI.ask('launch', {
-        message:value, context:{answers:state.assistantAnswers}, history:state.assistantLiveHistory,
+        message:value, context:{answers:state.assistantAnswers,askedQuestions:state.assistantAskedQuestions,turn:state.assistantModelHistory.filter(message=>message.role==='user').length}, history:state.assistantModelHistory,
         catalog:window.SkillazLiveAI.context(query)
       });
       Object.entries(result.updates || {}).forEach(([key,val]) => { if (val && key in state.assistantAnswers) state.assistantAnswers[key] = val; });
       if (!state.assistantAnswers.audienceIntent) state.assistantAnswers.audienceIntent = value;
+      state.assistantAnswers.event = normalizedEvent(state.assistantAnswers.event);
+      state.assistantAnswers.timing = normalizedTiming(state.assistantAnswers.timing);
+      state.assistantAnswers.pathType = normalizedPath(state.assistantAnswers.pathType);
+      const assistantReply = [result.message,result.question].filter(Boolean).join(' ');
+      if (assistantReply) state.assistantModelHistory.push({role:'assistant',text:assistantReply});
       if (result.message) state.assistantLiveHistory.push({role:'assistant',text:result.message});
+      if (result.question) state.assistantAskedQuestions.push(result.question);
       state.assistantLivePrompt = result.question ? [result.question,result.hint || 'Ответьте своими словами — я настрою системные параметры.'] : null;
       state.assistantLiveSuggestions = Array.isArray(result.suggestions) ? result.suggestions.slice(0,4) : [];
-      state.assistantStep = result.ready ? 7 : Math.min(6,state.assistantStep + 1);
+      const turnCount = state.assistantLiveHistory.filter(message=>message.role==='user').length;
+      if (result.ready || turnCount >= 4) completeLaunchDefaults();
+      state.assistantStep = result.ready || turnCount >= 4 ? 7 : Math.min(6,state.assistantStep + 1);
     } catch (error) {
       state.assistantError = 'Живой AI временно недоступен. Ответ сохранён, можно продолжить в демо-режиме.';
       applyLocalAssistantAnswer(value);
@@ -314,8 +359,10 @@
     state.assistantLivePrompt = null;
     state.assistantLiveSuggestions = [];
     state.assistantLiveHistory = [];
+    state.assistantModelHistory = [];
     state.assistantBusy = false;
     state.assistantError = '';
+    state.assistantAskedQuestions = [];
     render();
   };
 
@@ -502,6 +549,8 @@
         render();
       }
       if (action === 'continue-to-launch') {
+        completeLaunchDefaults();
+        state.manualLaunch = {...state.manualLaunch,...state.assistantAnswers};
         state.creationAssistantOpen = false;
         state.creationTourOpen = false;
         state.launchConfigured = true;

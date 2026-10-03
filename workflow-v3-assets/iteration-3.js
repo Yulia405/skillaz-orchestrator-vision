@@ -45,6 +45,28 @@
       </main></div>${overlays}`;
   };
 
+  const canvasType = type => ({test:'assessment',checkpoint:'assessment',meeting:'task',action:'task',goal:'task'}[type] || type || 'task');
+  const enrichGeneratedItems = () => {
+    const catalog = window.SkillazProductionCatalog;
+    if (!catalog || !branches.length || !stages.length) return;
+    const processContext = Object.values(state.assistantAnswers || {}).join(' ');
+    let serial = 0;
+    branches.forEach(branch => stages.forEach((stage,stageIndex) => {
+      const cell = `${branch.id}-${stage.id}`;
+      const list = state.items[cell] ||= [];
+      const target = stageIndex === stages.length - 1 ? 1 : 2;
+      if (list.length >= target) return;
+      const matches = catalog.relevantElements(`${processContext} ${branch.name} ${branch.desc || ''} ${stage.name}`, 60)
+        .filter(row => ['course','article','task','test','survey','action','meeting'].includes(row.type));
+      for (const row of matches) {
+        if (list.length >= target) break;
+        if (list.some(item=>item.title===row.title)) continue;
+        const id = `ai-catalog-${branch.id}-${stage.id}-${serial++}`;
+        list.push({id,type:canvasType(row.type),title:row.title,meta:`AI · ${row.source}`,sourceId:row.id,outcomes:[]});
+      }
+    }));
+  };
+
   const selectedRoles = () => (state.newRoles || []).map(role => {
     const found = roleDirectory.find(item => item.name === role.name);
     return found || { ...role, name:role.name, scope:role.scope || role.assignmentRule || 'По оргструктуре', source:'Справочник бизнес-ролей', use:role.use || role.purpose || 'Действия процесса' };
@@ -151,26 +173,45 @@
 
     if (generated?.stages?.length && generated?.branches?.length) {
       stages.splice(0,stages.length,...generated.stages.map((stage,index)=>({id:stage.id||`stage-${index+1}`,name:stage.name,days:String(stage.days||''),count:0})));
-      branches.splice(0,branches.length,...generated.branches.map((branch,index)=>({id:branch.id||`branch-${index+1}`,name:branch.name,meta:[branch.condition||'По условиям аудитории','AI'],desc:branch.condition||'',conditions:[branch.condition||'']})));
+      branches.splice(0,branches.length,...generated.branches.map((branch,index)=>{
+        const rawCondition = String(branch.condition ?? '').trim();
+        const condition = !rawCondition || rawCondition === 'true' ? (index === 0 ? 'Вся выбранная аудитория' : `Должность или группа: ${branch.name}`) : rawCondition;
+        return {id:branch.id||`branch-${index+1}`,name:branch.name,meta:[condition,'AI'],desc:condition,conditions:[condition]};
+      }));
       state.items = {};
-      const typeMap = {test:'assessment',checkpoint:'assessment',meeting:'task',action:'task',goal:'task'};
       (generated.items||[]).forEach((item,index)=>{
         const branchId = branches.some(branch=>branch.id===item.branchId) ? item.branchId : branches[0].id;
         const stageId = stages.some(stage=>stage.id===item.stageId) ? item.stageId : stages[0].id;
         const cell = `${branchId}-${stageId}`;
         const id = item.id||`ai-${index}`;
-        (state.items[cell] ||= []).push({id,type:typeMap[item.type]||item.type||'task',title:item.title,meta:item.assignee||'AI · каталог',sourceId:item.sourceId,outcomes:item.outcomes||[]});
+        (state.items[cell] ||= []).push({id,type:canvasType(item.type),title:item.title,meta:item.assignee||'AI · каталог',sourceId:item.sourceId,outcomes:item.outcomes||[]});
         if (item.outcomes?.[0] && state.outcomeRules) state.outcomeRules[id] = {condition:item.outcomes[0].if,action:item.outcomes[0].then};
       });
+      enrichGeneratedItems();
       extras = {};
       state.processTitle = generated.title || state.assistantAnswers?.scenario || 'Новый процесс';
       state.generatedAiProcess = generated;
+      const defaultLinks = Object.values(state.items).flat().filter(item=>['task','course','assessment'].includes(item.type)).slice(0,3).map(item=>item.id);
+      const generatedGoals = generated.goals?.length ? generated.goals : [{title:'Освоить ключевые задачи роли',result:state.assistantAnswers?.result||'Самостоятельно выполнять работу по стандартам роли',day:30,linkedItemIds:defaultLinks}];
+      const generatedCheckpoints = generated.checkpoints?.length ? generated.checkpoints : [
+        {title:'Проверка старта',day:7,result:'Доступы получены, обязательные действия выполнены',participants:['Руководитель','Наставник'],onFail:'Уведомить координатора'},
+        {title:'Проверка практики',day:30,result:'Ключевые действия выполнены под наблюдением',participants:['Наставник','Эксперт'],onFail:'Назначить дополнительную практику'},
+        {title:'Финальный допуск',day:60,result:state.assistantAnswers?.result||'Готовность к самостоятельной работе подтверждена',participants:['Руководитель','Проверяющий'],onFail:'Согласовать корректирующий план'}
+      ];
+      aiState.goals = generatedGoals.map((goal,index)=>({
+        id:`generated-goal-${index}`,branchId:goal.branchId||branches[0].id,title:goal.title,result:goal.result||goal.title,
+        day:Number(goal.day)||30,source:'AI · каталог целей',candidates:[],linked:(goal.linkedItemIds||[]).map(id=>({id,title:Object.values(state.items).flat().find(item=>item.id===id)?.title||id}))
+      }));
+      aiState.sessions = [{branches:branches.map(branch=>branch.id),entries:generatedCheckpoints.map((checkpoint,index)=>({
+        id:`generated-kt-${index}`,title:checkpoint.title,day:Number(checkpoint.day)||[14,30,60][index]||30,
+        agenda:checkpoint.result||'Проверить результат этапа и договориться о следующих шагах.',pulse:checkpoint.onFail||'Какая поддержка нужна сотруднику?',participants:checkpoint.participants||[]
+      }))}];
     } else loadWorkflow('courier');
     state.newWorkflow = true;
     state.workflow = 'generated';
     state.generatedProcess = true;
-    state.newGoalScenario = true;
-    state.newKtScenario = true;
+    state.newGoalScenario = aiState.goals.length > 0;
+    state.newKtScenario = aiState.sessions.some(session=>session.entries?.length);
     state.step = 'canvas';
     state.view = 'canvas';
     state.layer = 'process';

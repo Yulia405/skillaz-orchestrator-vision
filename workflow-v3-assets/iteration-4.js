@@ -105,10 +105,20 @@
   // the canvas instead of making the administrator switch between layers.
   scenarioRail = () => {
     state.goalsOpen = true;
+    if (aiState.goals?.length) {
+      const scopeNames = [...new Set(aiState.goals.map(goal=>branches.find(branch=>branch.id===goal.branchId)?.name).filter(Boolean))];
+      return `<section class="scenario-rail expanded live-scenario-rail"><div class="rail-label"><b>Сценарии целей</b><small>Цели и промежуточные результаты связаны с действиями процесса</small></div><div class="scenario-cards"><article class="scenario-card" data-open-scenario="goal"><span class="tag purple">${aiState.goals.length} ${aiState.goals.length===1?'цель':'цели'}</span><b>${scopeNames.join(', ') || 'Выбранные ветки'}</b><small>Цели создаёт ${aiState.creator || 'администратор'}</small>${aiState.goals.slice(0,4).map(goal=>`<div class="goal-result"><b>${goal.title}</b><span>${goal.result} · до ${goal.day} дня · ${(goal.linked||[]).length} связей</span></div>`).join('')}<button class="btn small">Открыть сценарий</button></article><button class="btn small" data-action="addGoalScenario">＋ Сценарий целей</button></div></section>`;
+    }
     return previousScenarioRail().replace('<button class="btn small" data-action="toggleGoals">Свернуть</button>', '');
   };
   checkpointRail = () => {
     state.ktOpen = true;
+    const entries = (aiState.sessions || []).flatMap(session=>session.entries||[]);
+    if (entries.length) {
+      const scopeIds = (aiState.sessions || []).flatMap(session=>session.branches||[]);
+      const scopeNames = [...new Set(scopeIds.map(id=>branches.find(branch=>branch.id===id)?.name).filter(Boolean))];
+      return `<section class="checkpoint-rail expanded live-scenario-rail"><div class="rail-label"><b style="color:var(--amber)">Сценарии контрольных точек</b><small>Сроки, результаты и реакции на отклонения</small></div><div class="checkpoint-cards"><article class="checkpoint-card scenario-group" data-open-scenario="kt"><span class="tag amber">${entries.length} ${entries.length===1?'сессия':'сессии КТ'}</span><b>${scopeNames.join(', ') || branches.map(branch=>branch.name).join(', ')}</b><div class="session-row">${entries.slice(0,4).map(entry=>`<span><b>${entry.day} день</b> · ${entry.title}</span>`).join('')}</div><small>${entries[0]?.agenda || 'Проверка результата и необходимой поддержки'}</small><button class="btn small">Открыть сценарий</button></article><button class="btn small" data-action="addKtScenario">＋ Сценарий КТ</button></div></section>`;
+    }
     return previousCheckpointRail().replace('<button class="btn small" data-action="toggleKt">Свернуть</button>', '');
   };
 

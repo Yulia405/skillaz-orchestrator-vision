@@ -143,14 +143,41 @@ async function aiGenerate() {
           pulse:proposal.pulse||'Насколько уверенно сотрудник выполняет задачи роли?', candidates, linked:candidates.slice(0,2)
         };
       });
+      if (aiState.mode === 'elements') aiState.proposals = supplementElementProposals(aiState.proposals, scope, selectedStages, query);
     } else aiState.proposals = fallback();
   } catch (error) {
     aiState.proposals = fallback();
     aiState.liveFallback = true;
   }
+  if (aiState.mode === 'elements') aiState.proposals = supplementElementProposals(aiState.proposals, scope, selectedStages, [...scope.map(id=>aiBranch(id)?.name||''),...selectedStages.map(id=>aiStage(id)?.name||'')].join(' '));
   if (!aiState.proposals.length) return $('#aiError').textContent = 'Для этих условий новых предложений нет. Измените ветки, этапы или источники.';
   aiState.step = 'review';
   render();
+}
+
+function supplementElementProposals(current, scope, selectedStages, query) {
+  const catalog = window.SkillazProductionCatalog;
+  if (!catalog || !scope.length || !selectedStages.length) return current;
+  const result = [...current];
+  const target = Math.min(24, Math.max(scope.length * selectedStages.length, 12));
+  const rows = catalog.relevantElements(query, 70).filter(row => ['course','article','task','test','survey','action','meeting'].includes(row.type));
+  const mappedType = type => ({test:'assessment',action:'task',meeting:'task'}[type] || type);
+  let serial = 0;
+  const addForCell = (branchId,stageId) => {
+    const existing = new Set([...(state.items[`${branchId}-${stageId}`]||[]).map(item=>item.title),...result.filter(item=>item.branchId===branchId&&item.stageId===stageId).map(item=>item.title)]);
+    const row = rows.find(candidate=>!existing.has(candidate.title));
+    if (!row) return;
+    result.push({id:`live-catalog-${branchId}-${stageId}-${serial++}`,branchId,stageId,type:mappedType(row.type),title:row.title,source:row.source,sourceId:row.id,reason:'Подобрано из каталога по аудитории ветки и назначению этапа.',outcomes:[]});
+  };
+  scope.forEach(branchId=>selectedStages.forEach(stageId=>{
+    if (!result.some(item=>item.branchId===branchId&&item.stageId===stageId)) addForCell(branchId,stageId);
+  }));
+  let pass = 0;
+  while (result.length < target && pass < 3) {
+    scope.forEach(branchId=>selectedStages.forEach(stageId=>{ if (result.length < target) addForCell(branchId,stageId); }));
+    pass += 1;
+  }
+  return result.slice(0, target);
 }
 
 function aiElementProposals() {
@@ -211,11 +238,15 @@ function aiApply() {
     state.newGoalScenario = true;
     state.goalsOpen = true;
     state.layer = 'goals';
+    state.generatedAiProcess ||= {};
+    state.generatedAiProcess.goals = [...aiState.goals];
   } else {
     aiState.sessions.push({ branches:[...aiState.scope], entries:proposals });
     state.newKtScenario = true;
     state.ktOpen = true;
     state.layer = 'checkpoints';
+    state.generatedAiProcess ||= {};
+    state.generatedAiProcess.checkpoints = aiState.sessions.flatMap(session=>session.entries||[]);
   }
   const count = proposals.length;
   const mode = aiState.mode;
