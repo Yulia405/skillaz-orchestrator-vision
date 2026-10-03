@@ -1,0 +1,158 @@
+// Local iteration 3: participants assistant, generated process and table list.
+(() => {
+  state.participantAssistantOpen ??= false;
+  state.participantAssistantStep ??= 1;
+  state.participantUserMessages ??= {};
+  state.coordinatorRule ??= '';
+  state.generatedProcess ??= false;
+
+  const previousHub = hub;
+  const previousEditor = editor;
+  const previousParticipantsPage = participantsPageV2;
+  const previousCanvasPage = canvasPage;
+
+  const roleDirectory = [
+    { name:'Наставник логистического центра', scope:'Логистический центр · свое подразделение', source:'Справочник бизнес-ролей', use:'Практика и обратная связь' },
+    { name:'HRBP логистического центра', scope:'Логистическая сеть', source:'Справочник бизнес-ролей', use:'Сопровождение и эскалации' },
+    { name:'Эксперт по охране труда', scope:'Все подразделения', source:'Справочник бизнес-ролей', use:'Проверка обязательного допуска' },
+    { name:'Специалист IT / IAM', scope:'Все подразделения', source:'Справочник бизнес-ролей', use:'Доступы и рабочие системы' },
+    { name:'Руководитель подразделения', scope:'По оргструктуре сотрудника', source:'Системная связь', use:'Контрольные встречи и решения' }
+  ];
+
+  const safe = value => String(value || '').replace(/[&<>"']/g, symbol => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[symbol]));
+
+  const tableHub = () => {
+    const inherited = previousHub();
+    const overlayIndex = inherited.indexOf('<div class="local-overlay');
+    const overlays = overlayIndex >= 0 ? inherited.slice(overlayIndex) : '';
+    const rows = [
+      ['courier','Новый сотрудник логистического центра','Новый сотрудник','Черновик','4','96','Сегодня, 12:40'],
+      ['courier','Пребординг массовых сотрудников','Пребординг','Опубликован','4','42','Вчера, 18:10'],
+      ['manager','Вход руководителя клиентского офиса','Новая роль','Черновик','3','82','29 сентября'],
+      ['courier','Новый сотрудник розничной сети','Новый сотрудник','На проверке','3','54','27 сентября']
+    ];
+    return `<div class="hub process-hub"><header class="topbar"><div class="brand"><span class="brand-mark">S</span>Skillaz Start</div><div class="crumb">Процессы входа в роль</div><div class="topbar-spacer"></div><button class="btn">Справка</button></header>
+      <main class="hub-main process-list-page"><div class="hub-head"><div><h1>Процессы</h1><p class="muted">Пребординг, новый сотрудник и вход в новую роль.</p></div><button class="btn primary" data-action="new">＋ Новый процесс</button></div>
+      <div class="process-list-controls"><div class="process-search">⌕ <input placeholder="Найти процесс"></div><button class="btn">Все сценарии</button><button class="btn">Все статусы</button><span>${rows.length} процесса</span></div>
+      <section class="process-table"><div class="process-row process-head"><span>Название</span><span>Сценарий</span><span>Статус</span><span>Ветки</span><span>Элементы</span><span>Изменён</span><span></span></div>
+      ${rows.map(row => `<div class="process-row"><span><b>${row[1]}</b><small>Автоматический запуск · мастер-система</small></span><span>${row[2]}</span><span><i class="status-pill ${row[3] === 'Опубликован' ? 'green' : row[3] === 'На проверке' ? 'amber' : ''}">${row[3]}</i></span><span>${row[4]}</span><span>${row[5]}</span><span>${row[6]}</span><span><button class="btn small" data-workflow="${row[0]}">Открыть</button></span></div>`).join('')}</section>
+      </main></div>${overlays}`;
+  };
+
+  const selectedRoles = () => (state.newRoles || []).map(role => {
+    const found = roleDirectory.find(item => item.name === role.name);
+    return found || { name:role.name, scope:role.scope || 'По оргструктуре', source:'Справочник бизнес-ролей', use:'Действия процесса' };
+  });
+
+  const participantsTargetPage = () => {
+    const roles = selectedRoles();
+    return `<div class="editor-toolbar participant-toolbar"><div><b>Участники и сопровождение</b><small>${roles.length ? `${roles.length} бизнес-роли настроено` : 'Нужно определить помощников и координатора'}</small></div><div class="topbar-spacer"></div><button class="btn" data-participant-action="open-assistant">✦ Настроить с помощником</button><span class="tag ${roles.length && state.coordinatorRule ? 'green' : ''}">${roles.length && state.coordinatorRule ? 'Настроено' : 'Черновик'}</span></div>
+      <div class="page participants-page"><div class="page-card wide-card"><div class="settings-title"><div><span class="tag blue">Шаг 2 · Участники</span><h1>Кто помогает сотруднику пройти процесс</h1><p class="muted">Задайте роли. Конкретных людей система найдёт при назначении плана по структуре и доступности.</p></div></div>
+      <h2 class="role-section-title">Системные роли</h2><div class="system-roles"><section><span class="tag blue">Всегда</span><h3>Сотрудник</h3><p>Получает персональный план</p></section><section class="manager-source-card"><span class="tag blue">Источник из оргструктуры</span><h3>Руководитель</h3><p>Выберите, кого система назначит в план.</p><div class="manager-source-options"><label><input type="radio" name="managerSource" checked> Административный</label><label><input type="radio" name="managerSource"> Функциональный</label></div></section></div>
+      <div class="role-section-head"><div><h2>Бизнес-роли</h2><p class="muted">В рабочей версии роли выбираются из справочника бизнес-ролей, а AI рекомендует подходящие по аудитории и сценарию.</p></div><button class="btn" data-participant-action="open-assistant">Изменить подбор</button></div>
+      ${roles.length ? `<div class="business-role-table"><div class="role-row head"><span>Роль</span><span>Охват</span><span>Назначение</span><span>Источник</span></div>${roles.map(role => `<div class="role-row"><span><b>${role.name}</b></span><span>${role.scope}</span><span>${role.use}</span><span><span class="tag green">${role.source}</span></span></div>`).join('')}</div>` : `<div class="empty-setting"><b>Помощники ещё не выбраны</b><span>Расскажите помощнику, кто сопровождает сотрудника: наставник, HR, эксперт, IT или другая бизнес-роль.</span></div>`}
+      <section class="coordinator-card ${state.coordinatorRule ? 'ready' : ''}"><div><span class="tag">Владелец сопровождения</span><h2>Координатор процесса</h2><p>${state.coordinatorRule || 'Не определён. Координатор видит прогресс, просрочки и получает уведомления по отклонениям.'}</p></div><button class="btn" data-participant-action="open-assistant">${state.coordinatorRule ? 'Изменить' : 'Определить'}</button></section>
+      <div class="wizard-next"><button class="btn" data-step="base">← Вернуться к запуску</button><button class="btn primary" data-participant-action="generate-process" ${roles.length && state.coordinatorRule ? '' : 'disabled title="Сначала настройте помощников и координатора"'}>✦ Перейти к процессу и собрать черновик</button></div>
+      </div></div>`;
+  };
+
+  const participantHistory = () => {
+    const roles = selectedRoles();
+    let html = '';
+    if (state.participantUserMessages[1]) html += `<div class="assistant-message user"><div><p>${safe(state.participantUserMessages[1])}</p></div></div><div class="assistant-message bot compact"><span>S</span><div><p>Нашёл ${roles.length} подходящие бизнес-роли в справочнике и проверил их охват.</p></div></div>`;
+    if (state.participantUserMessages[2]) html += `<div class="assistant-message user"><div><p>${safe(state.participantUserMessages[2])}</p></div></div><div class="assistant-message bot compact"><span>S</span><div><p>Координатор настроен: <b>${safe(state.coordinatorRule)}</b>.</p></div></div>`;
+    return html;
+  };
+
+  const participantAssistant = () => {
+    if (!state.participantAssistantOpen) return '';
+    const roles = selectedRoles();
+    const step = state.participantAssistantStep;
+    const question = step === 1
+      ? ['Кто помогает сотруднику пройти этот процесс?','Напишите бизнес роли обычными словами. Например: «наставник на рабочем месте, HR и эксперт по охране труда».']
+      : ['Кто должен следить за процессом целиком?','Этот человек увидит прогресс, просрочки и отклонения. Например: HRBP подразделения или назначающий администратор.'];
+    return `<div class="local-overlay assistant-overlay" role="dialog" aria-modal="true" aria-label="Помощник по участникам"><section class="assistant-shell participant-assistant-shell">
+      <header class="assistant-head"><div><span class="tag purple">AI · участники</span><h1>Настроим сопровождение</h1></div><button class="btn icon-only" data-participant-action="close-assistant">×</button></header>
+      <div class="assistant-layout"><main class="assistant-dialogue"><div class="assistant-context"><span class="status-dot"></span><div><b>Справочник бизнес-ролей</b><small>AI рекомендует роли по сценарию, оргструктуре и доступному источнику назначения</small></div></div><div class="assistant-thread">${participantHistory()}
+      ${step <= 2 ? `<div class="assistant-message bot current"><span>S</span><div><b>${question[0]}</b><p>${question[1]}</p></div></div><div class="assistant-hints"><span>Примеры</span>${(step === 1 ? ['Наставник, HR и эксперт по охране труда','Наставник и руководитель','HR и специалист IT'] : ['HRBP подразделения','Назначающий администратор','Руководитель подразделения']).map(text => `<button data-participant-suggest="${text}">${text}</button>`).join('')}</div><form class="assistant-composer" data-participant-form><textarea data-participant-input rows="2" placeholder="Напишите ответ своими словами…"></textarea><button class="btn primary" type="submit">Отправить ↑</button></form>` : `<div class="assistant-message bot success"><span>✓</span><div><b>Участники настроены</b><p>Я связал роли со структурой и добавил координатора. Теперь могу собрать этапы, ветки и действия процесса.</p></div></div><button class="btn primary assistant-continue" data-participant-action="finish-assistant">Проверить участников →</button>`}
+      </div></main><aside class="draft-summary"><div class="draft-title"><span class="tag">Черновик участников</span><b>${roles.length + 2} ролей</b><small>2 системные + ${roles.length} бизнес-роли</small></div>${roles.map((role,index) => `<article class="filled"><i>${index + 1}</i><div><small>Бизнес-роль</small><b>${role.name}</b><small>${role.scope}</small></div></article>`).join('')}<article class="${state.coordinatorRule ? 'filled' : ''}"><i>К</i><div><small>Координатор</small><b>${state.coordinatorRule || 'Нужно определить'}</b></div></article></aside></div>
+      </section></div>`;
+  };
+
+  const parseRoles = value => {
+    const lower = value.toLowerCase();
+    const roles = [];
+    if (/настав|помощ/.test(lower)) roles.push(roleDirectory[0]);
+    if (/hr|эйчар|кадр|координ/.test(lower)) roles.push(roleDirectory[1]);
+    if (/охран|безопас|эксперт/.test(lower)) roles.push(roleDirectory[2]);
+    if (/it|айти|доступ/.test(lower)) roles.push(roleDirectory[3]);
+    if (/руковод/.test(lower)) roles.push(roleDirectory[4]);
+    return roles.length ? roles : [roleDirectory[0], roleDirectory[1], roleDirectory[2]];
+  };
+
+  const submitParticipant = value => {
+    const text = String(value || '').trim();
+    if (!text) return;
+    const step = state.participantAssistantStep;
+    state.participantUserMessages[step] = text;
+    if (step === 1) state.newRoles = parseRoles(text).filter(role => role.source !== 'Системная связь').map(role => ({name:role.name,scope:role.scope}));
+    if (step === 2) state.coordinatorRule = /руковод/.test(text.toLowerCase()) ? 'Руководитель подразделения по оргструктуре' : /назнач/.test(text.toLowerCase()) ? 'Назначающий администратор' : 'HRBP подразделения сотрудника';
+    state.participantAssistantStep += 1;
+    render();
+    requestAnimationFrame(() => {
+      const thread = document.querySelector('.participant-assistant-shell .assistant-thread');
+      if (thread) thread.scrollTop = thread.scrollHeight;
+    });
+  };
+
+  const generateProcess = () => {
+    loadWorkflow('courier');
+    state.newWorkflow = true;
+    state.workflow = 'generated';
+    state.generatedProcess = true;
+    state.newGoalScenario = true;
+    state.newKtScenario = true;
+    state.step = 'canvas';
+    state.view = 'canvas';
+    state.layer = 'process';
+    render();
+    setTimeout(() => toast('AI собрал черновик: 6 этапов, 4 ветки и элементы из демонстрационных каталогов'), 120);
+  };
+
+  hub = tableHub;
+  participantsPageV2 = () => state.newWorkflow ? participantsTargetPage() : previousParticipantsPage();
+  canvasPage = () => previousCanvasPage();
+  editor = () => {
+    const content = previousEditor();
+    const titled = state.generatedProcess ? content.replace('<b>Новый workflow</b>','<b>Новый процесс логистического центра</b>') : content;
+    return titled + participantAssistant();
+  };
+
+  if (!window.__workflowIterationThreeBound) {
+    window.__workflowIterationThreeBound = true;
+    document.addEventListener('submit', event => {
+      const form = event.target.closest('[data-participant-form]');
+      if (!form) return;
+      event.preventDefault();
+      submitParticipant(form.querySelector('[data-participant-input]')?.value);
+    }, true);
+    document.addEventListener('click', event => {
+      const suggestion = event.target.closest('[data-participant-suggest]');
+      if (suggestion) { event.preventDefault(); submitParticipant(suggestion.dataset.participantSuggest); return; }
+      const node = event.target.closest('[data-participant-action]');
+      if (!node) return;
+      event.preventDefault();
+      const action = node.dataset.participantAction;
+      if (action === 'open-assistant') {
+        state.participantAssistantOpen = true;
+        state.participantAssistantStep = state.newRoles.length ? (state.coordinatorRule ? 3 : 2) : 1;
+        render();
+      }
+      if (action === 'close-assistant') { state.participantAssistantOpen = false; render(); }
+      if (action === 'finish-assistant') { state.participantAssistantOpen = false; render(); }
+      if (action === 'generate-process') generateProcess();
+    }, true);
+  }
+
+  render();
+})();
