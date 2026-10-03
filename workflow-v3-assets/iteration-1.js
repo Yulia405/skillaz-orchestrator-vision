@@ -9,14 +9,22 @@
   state.assistantAnswers = { scenario: '', audienceIntent: '', result: '', event: '', timing: '', audience: '', pathType: '' };
   state.assistantUserMessages ??= {};
   state.assistantAudienceMode ??= '';
+  state.assistantLivePrompt ??= null;
+  state.assistantLiveSuggestions ??= [];
+  state.assistantLiveHistory ??= [];
+  state.assistantBusy ??= false;
+  state.assistantError ??= '';
 
   const originalStartNewWorkflow = startNewWorkflow;
   const originalHub = hub;
   const originalEditor = editor;
   const originalCanvasPage = canvasPage;
 
-  const catalogCount = () => Object.values(window.SkillazDemoDB?.catalogs || {})
-    .reduce((sum, rows) => sum + rows.length, 0);
+  const catalogCount = () => {
+    const production = window.SkillazProductionCatalog?.stats;
+    if (production) return production.elements + production.roles;
+    return Object.values(window.SkillazDemoDB?.catalogs || {}).reduce((sum, rows) => sum + rows.length, 0);
+  };
 
   const creationChoice = () => `
     <div class="local-overlay creation-entry" role="dialog" aria-modal="true" aria-label="Создание workflow">
@@ -97,13 +105,16 @@
     return `<aside class="assistant-skills ${state.assistantSkillsOpen ? 'open' : ''}">
       <header><div><b>Навыки помощника</b><small>Каждый навык заполняет конкретную часть workflow</small></div><button data-local-action="toggle-skills">×</button></header>
       <div>${skills.map(s => `<article><i>${s[0]}</i><span><b>${s[1]}</b><small>${s[2]}</small></span></article>`).join('')}</div>
-      <footer>${catalogCount()} демонстрационных объектов доступны для подбора</footer>
+      <footer>${catalogCount()} элементов и бизнес ролей доступны для контекстного подбора</footer>
     </aside>`;
   };
 
   const safeAssistantText = value => String(value || '').replace(/[&<>"']/g, symbol => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[symbol]));
 
   const assistantHistory = () => {
+    if (state.assistantLiveHistory.length) return state.assistantLiveHistory.map(message => message.role === 'user'
+      ? `<div class="assistant-message user"><div><p>${safeAssistantText(message.text)}</p></div></div>`
+      : `<div class="assistant-message bot compact"><span>S</span><div><p>${safeAssistantText(message.text)}</p></div></div>`).join('');
     const a = state.assistantAnswers;
     const u = state.assistantUserMessages;
     const messages = [];
@@ -118,7 +129,7 @@
       : `<div class="assistant-message bot compact"><span>S</span><div><p>${text}</p></div></div>`).join('');
   };
 
-  const assistantPrompt = () => ({
+  const assistantPrompt = () => state.assistantLivePrompt || ({
     1: ['Для каких должностей и подразделений нужен процесс?', 'Опишите аудиторию обычными словами. Например: «Для массовых сотрудников логистического центра».'],
     2: ['Уточните, какие части структуры включить', 'Я нашёл логистическую сеть, складские площадки и доставку. Напишите конкретные подразделения и должности — можно перечислить через запятую.'],
     3: ['Что сотрудник должен уметь делать самостоятельно в конце?', 'Не нужно придумывать системную формулировку. Опишите практический результат работы.'],
@@ -127,7 +138,7 @@
     6: ['У всех будет одинаковый путь?', 'Если офису, складу и доставке нужны разные действия, просто скажите об этом — я создам варианты.']
   }[state.assistantStep] || []);
 
-  const assistantSuggestions = () => ({
+  const assistantSuggestions = () => state.assistantLiveSuggestions.length ? state.assistantLiveSuggestions : ({
     1: ['Массовые сотрудники логистического центра','Сотрудники розницы','Сотрудники производства'],
     2: ['Складская логистика: кладовщики и комплектовщики','Доставка: курьеры и водители','Все подразделения логистического центра'],
     3: ['Самостоятельно выполняет работу по стандартам роли','Готов к первому рабочему дню'],
@@ -142,7 +153,8 @@
       return `${assistantHistory()}
         <div class="assistant-message bot current"><span>S</span><div><b>${prompt[0]}</b><p>${prompt[1]}</p></div></div>
         <div class="assistant-hints"><span>Можно ответить текстом</span>${assistantSuggestions().map(value => `<button data-assistant-suggest="${safeAssistantText(value)}">${safeAssistantText(value)}</button>`).join('')}</div>
-        <form class="assistant-composer" data-assistant-form><textarea data-assistant-input rows="2" placeholder="Напишите ответ своими словами…"></textarea><button class="btn primary" type="submit">Отправить ↑</button></form>`;
+        ${state.assistantError ? `<p class="ai-error">${safeAssistantText(state.assistantError)}</p>` : ''}
+        <form class="assistant-composer" data-assistant-form><textarea data-assistant-input rows="2" placeholder="Напишите ответ своими словами…" ${state.assistantBusy?'disabled':''}></textarea><button class="btn primary" type="submit" ${state.assistantBusy?'disabled':''}>${state.assistantBusy?'Анализирую…':'Отправить ↑'}</button></form>`;
     }
     return `
       ${assistantHistory()}
@@ -249,42 +261,42 @@
     .replaceAll('Настройки workflow','Проверка и публикация')
     + (state.creationTourOpen ? creationTour() : '');
 
-  const submitAssistantText = rawValue => {
-    const value = String(rawValue || '').trim();
-    if (!value || state.assistantStep > 6) return;
-    state.assistantUserMessages[state.assistantStep] = value;
+  const applyLocalAssistantAnswer = value => {
     const lower = value.toLowerCase();
     if (state.assistantStep === 1) {
       state.assistantAnswers.audienceIntent = value;
       state.assistantAnswers.scenario = /оффер|до выход|преборд/.test(lower) ? 'Пребординг'
-        : /нов(ая|ую) рол|переход|перевод/.test(lower) ? 'Вход в новую роль'
-        : 'Новый сотрудник';
-    } else if (state.assistantStep === 2) {
-      state.assistantAnswers.audience = /все.*логист/.test(lower) ? 'Логистический центр · все подразделения · массовые должности'
-        : /склад|кладовщик|комплектовщик/.test(lower) ? 'Складская логистика · кладовщики и комплектовщики'
-        : /достав|курьер|водител/.test(lower) ? 'Доставка · курьеры и водители'
-        : /розниц/.test(lower) ? 'Розничная сеть · массовые должности'
-        : /производ/.test(lower) ? 'Производственные подразделения · массовые должности'
-        : value;
-    } else if (state.assistantStep === 3) {
-      state.assistantAnswers.result = value;
-    } else if (state.assistantStep === 4) {
-      state.assistantAnswers.event = /оффер/.test(lower) ? 'ATS · оффер принят'
-        : /должност|перевод|новая роль/.test(lower) ? 'Мастер-система · должность изменилась'
-        : /ручн/.test(lower) ? 'Администратор · ручной запуск'
-        : /вышел|выход|работ/.test(lower) ? 'Мастер-система · сотрудник вышел'
-        : value;
-    } else if (state.assistantStep === 5) {
-      state.assistantAnswers.timing = /за .*(дн|день)|до событ|до выход/.test(lower) ? 'За 5 дней до события'
-        : /следующ|через.*день|после/.test(lower) ? 'Через 1 день после события'
-        : 'В момент события';
-    } else if (state.assistantStep === 6) {
-      state.assistantAnswers.pathType = /разн|вариант|ветк|услов|офис|склад|достав/.test(lower)
-        ? 'Общая часть + варианты по условиям'
-        : 'Один общий путь';
-    }
+        : /нов(ая|ую) рол|переход|перевод/.test(lower) ? 'Вход в новую роль' : 'Новый сотрудник';
+    } else if (state.assistantStep === 2) state.assistantAnswers.audience = value;
+    else if (state.assistantStep === 3) state.assistantAnswers.result = value;
+    else if (state.assistantStep === 4) state.assistantAnswers.event = value;
+    else if (state.assistantStep === 5) state.assistantAnswers.timing = value;
+    else if (state.assistantStep === 6) state.assistantAnswers.pathType = value;
     state.assistantStep += 1;
-    render();
+  };
+
+  const submitAssistantText = async rawValue => {
+    const value = String(rawValue || '').trim();
+    if (!value || state.assistantStep > 6 || state.assistantBusy) return;
+    state.assistantUserMessages[state.assistantStep] = value;
+    state.assistantLiveHistory.push({role:'user',text:value});
+    state.assistantBusy = true; state.assistantError = ''; render();
+    try {
+      const query = [value,...Object.values(state.assistantAnswers)].join(' ');
+      const result = await window.SkillazLiveAI.ask('launch', {
+        message:value, context:{answers:state.assistantAnswers}, history:state.assistantLiveHistory,
+        catalog:window.SkillazLiveAI.context(query)
+      });
+      Object.entries(result.updates || {}).forEach(([key,val]) => { if (val && key in state.assistantAnswers) state.assistantAnswers[key] = val; });
+      if (!state.assistantAnswers.audienceIntent) state.assistantAnswers.audienceIntent = value;
+      if (result.message) state.assistantLiveHistory.push({role:'assistant',text:result.message});
+      state.assistantLivePrompt = result.question ? [result.question,result.hint || 'Ответьте своими словами — я настрою системные параметры.'] : null;
+      state.assistantLiveSuggestions = Array.isArray(result.suggestions) ? result.suggestions.slice(0,4) : [];
+      state.assistantStep = result.ready ? 7 : Math.min(6,state.assistantStep + 1);
+    } catch (error) {
+      state.assistantError = 'Живой AI временно недоступен. Ответ сохранён, можно продолжить в демо-режиме.';
+      applyLocalAssistantAnswer(value);
+    } finally { state.assistantBusy = false; render(); }
     requestAnimationFrame(() => {
       const thread = document.querySelector('.assistant-thread');
       if (thread) thread.scrollTop = thread.scrollHeight;
@@ -299,6 +311,11 @@
     state.assistantAnswers = { scenario: scenario || '', audienceIntent: '', result: '', event: '', timing: '', audience: '', pathType: '' };
     state.assistantUserMessages = {};
     state.assistantAudienceMode = '';
+    state.assistantLivePrompt = null;
+    state.assistantLiveSuggestions = [];
+    state.assistantLiveHistory = [];
+    state.assistantBusy = false;
+    state.assistantError = '';
     render();
   };
 

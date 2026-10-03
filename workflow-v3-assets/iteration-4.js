@@ -34,10 +34,14 @@
   const labelByType = { course:'Курс / программа', task:'Задача', article:'Статья Базы знаний', test:'Тест', survey:'Опрос', action:'Системное действие', checkpoint:'Контрольная точка', goal:'Цель', meeting:'Встреча' };
   const elementRows = () => {
     const db = window.SkillazDemoDB?.catalogs || {};
+    const production = window.SkillazProductionCatalog?.elements || [];
     const order = state.cleanCatalogType ? [state.cleanCatalogType] : ['course','article','task','test','survey','action'];
     const source = {course:'LMS',article:'База знаний',task:'Шаблоны задач',test:'Оценка знаний',survey:'Опросы',action:'Skillaz'};
     const usage = {course:'Назначается сотруднику',article:'Открывается в плане',task:'Создаёт задачу исполнителю',test:'Сохраняет результат',survey:'Собирает обратную связь',action:'Выполняется автоматически'};
-    return order.flatMap(type => (db[type] || []).slice(0,6).map(row => ({id:row[0],type,title:row[1],meta:row[2],source:source[type],usage:usage[type]})));
+    return order.flatMap(type => {
+      const liveRows = production.filter(row => row.type === type).slice(0,12).map(row => ({id:row.id,type,title:row.title,meta:row.description,source:row.source,usage:usage[type]}));
+      return liveRows.length ? liveRows : (db[type] || []).slice(0,12).map(row => ({id:row[0],type,title:row[1],meta:row[2],source:source[type],usage:usage[type]}));
+    });
   };
 
   const outcomeEligible = type => ['course','assessment','survey','test'].includes(type);

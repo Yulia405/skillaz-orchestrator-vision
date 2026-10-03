@@ -5,6 +5,12 @@
   state.participantUserMessages ??= {};
   state.coordinatorRule ??= '';
   state.generatedProcess ??= false;
+  state.participantLivePrompt ??= null;
+  state.participantLiveSuggestions ??= [];
+  state.participantLiveHistory ??= [];
+  state.participantBusy ??= false;
+  state.participantError ??= '';
+  state.processGenerating ??= false;
 
   const previousHub = hub;
   const previousEditor = editor;
@@ -41,7 +47,7 @@
 
   const selectedRoles = () => (state.newRoles || []).map(role => {
     const found = roleDirectory.find(item => item.name === role.name);
-    return found || { name:role.name, scope:role.scope || 'По оргструктуре', source:'Справочник бизнес-ролей', use:'Действия процесса' };
+    return found || { ...role, name:role.name, scope:role.scope || role.assignmentRule || 'По оргструктуре', source:'Справочник бизнес-ролей', use:role.use || role.purpose || 'Действия процесса' };
   });
 
   const participantsTargetPage = () => {
@@ -57,6 +63,9 @@
   };
 
   const participantHistory = () => {
+    if (state.participantLiveHistory.length) return state.participantLiveHistory.map(message => message.role === 'user'
+      ? `<div class="assistant-message user"><div><p>${safe(message.text)}</p></div></div>`
+      : `<div class="assistant-message bot compact"><span>S</span><div><p>${safe(message.text)}</p></div></div>`).join('');
     const roles = selectedRoles();
     let html = '';
     if (state.participantUserMessages[1]) html += `<div class="assistant-message user"><div><p>${safe(state.participantUserMessages[1])}</p></div></div><div class="assistant-message bot compact"><span>S</span><div><p>Нашёл ${roles.length} подходящие бизнес-роли в справочнике и проверил их охват.</p></div></div>`;
@@ -68,13 +77,14 @@
     if (!state.participantAssistantOpen) return '';
     const roles = selectedRoles();
     const step = state.participantAssistantStep;
-    const question = step === 1
+    const question = state.participantLivePrompt || (step === 1
       ? ['Кто помогает сотруднику пройти этот процесс?','Напишите бизнес роли обычными словами. Например: «наставник на рабочем месте, HR и эксперт по охране труда».']
-      : ['Кто должен следить за процессом целиком?','Этот человек увидит прогресс, просрочки и отклонения. Например: HRBP подразделения или назначающий администратор.'];
+      : ['Кто должен следить за процессом целиком?','Этот человек увидит прогресс, просрочки и отклонения. Например: HRBP подразделения или назначающий администратор.']);
+    const suggestions = state.participantLiveSuggestions.length ? state.participantLiveSuggestions : (step === 1 ? ['Наставник, HR и эксперт по охране труда','Наставник и руководитель','HR и специалист IT'] : ['HRBP подразделения','Назначающий администратор','Руководитель подразделения']);
     return `<div class="local-overlay assistant-overlay" role="dialog" aria-modal="true" aria-label="Помощник по участникам"><section class="assistant-shell participant-assistant-shell">
       <header class="assistant-head"><div><span class="tag purple">AI · участники</span><h1>Настроим сопровождение</h1></div><button class="btn icon-only" data-participant-action="close-assistant">×</button></header>
       <div class="assistant-layout"><main class="assistant-dialogue"><div class="assistant-context"><span class="status-dot"></span><div><b>Справочник бизнес-ролей</b><small>AI рекомендует роли по сценарию, оргструктуре и доступному источнику назначения</small></div></div><div class="assistant-thread">${participantHistory()}
-      ${step <= 2 ? `<div class="assistant-message bot current"><span>S</span><div><b>${question[0]}</b><p>${question[1]}</p></div></div><div class="assistant-hints"><span>Примеры</span>${(step === 1 ? ['Наставник, HR и эксперт по охране труда','Наставник и руководитель','HR и специалист IT'] : ['HRBP подразделения','Назначающий администратор','Руководитель подразделения']).map(text => `<button data-participant-suggest="${text}">${text}</button>`).join('')}</div><form class="assistant-composer" data-participant-form><textarea data-participant-input rows="2" placeholder="Напишите ответ своими словами…"></textarea><button class="btn primary" type="submit">Отправить ↑</button></form>` : `<div class="assistant-message bot success"><span>✓</span><div><b>Участники настроены</b><p>Я связал роли со структурой и добавил координатора. Теперь могу собрать этапы, ветки и действия процесса.</p></div></div><button class="btn primary assistant-continue" data-participant-action="finish-assistant">Проверить участников →</button>`}
+      ${step <= 2 ? `<div class="assistant-message bot current"><span>S</span><div><b>${question[0]}</b><p>${question[1]}</p></div></div><div class="assistant-hints"><span>Варианты по вашему процессу</span>${suggestions.map(text => `<button data-participant-suggest="${safe(text)}">${safe(text)}</button>`).join('')}</div>${state.participantError?`<p class="ai-error">${safe(state.participantError)}</p>`:''}<form class="assistant-composer" data-participant-form><textarea data-participant-input rows="2" placeholder="Напишите ответ своими словами…" ${state.participantBusy?'disabled':''}></textarea><button class="btn primary" type="submit" ${state.participantBusy?'disabled':''}>${state.participantBusy?'Подбираю роли…':'Отправить ↑'}</button></form>` : `<div class="assistant-message bot success"><span>✓</span><div><b>Участники настроены</b><p>Я связал роли со структурой и добавил координатора. Теперь могу собрать этапы, ветки и действия процесса.</p></div></div><button class="btn primary assistant-continue" data-participant-action="finish-assistant">Проверить участников →</button>`}
       </div></main><aside class="draft-summary"><div class="draft-title"><span class="tag">Черновик участников</span><b>${roles.length + 2} ролей</b><small>2 системные + ${roles.length} бизнес-роли</small></div>${roles.map((role,index) => `<article class="filled"><i>${index + 1}</i><div><small>Бизнес-роль</small><b>${role.name}</b><small>${role.scope}</small></div></article>`).join('')}<article class="${state.coordinatorRule ? 'filled' : ''}"><i>К</i><div><small>Координатор</small><b>${state.coordinatorRule || 'Нужно определить'}</b></div></article></aside></div>
       </section></div>`;
   };
@@ -90,23 +100,72 @@
     return roles.length ? roles : [roleDirectory[0], roleDirectory[1], roleDirectory[2]];
   };
 
-  const submitParticipant = value => {
+  const submitParticipant = async value => {
     const text = String(value || '').trim();
-    if (!text) return;
+    if (!text || state.participantBusy) return;
     const step = state.participantAssistantStep;
     state.participantUserMessages[step] = text;
-    if (step === 1) state.newRoles = parseRoles(text).filter(role => role.source !== 'Системная связь').map(role => ({name:role.name,scope:role.scope}));
-    if (step === 2) state.coordinatorRule = /руковод/.test(text.toLowerCase()) ? 'Руководитель подразделения по оргструктуре' : /назнач/.test(text.toLowerCase()) ? 'Назначающий администратор' : 'HRBP подразделения сотрудника';
-    state.participantAssistantStep += 1;
-    render();
+    state.participantLiveHistory.push({role:'user',text});
+    state.participantBusy = true; state.participantError = ''; render();
+    try {
+      const contextText = [text,...Object.values(state.assistantAnswers || {}),(state.newRoles||[]).map(role=>role.name).join(' ')].join(' ');
+      const result = await window.SkillazLiveAI.ask('participants', {
+        message:text,
+        context:{launch:state.assistantAnswers || {},currentRoles:state.newRoles || [],coordinator:state.coordinatorRule},
+        history:state.participantLiveHistory,
+        catalog:window.SkillazLiveAI.context(contextText)
+      });
+      if (Array.isArray(result.roles) && result.roles.length) state.newRoles = result.roles.map(role => ({name:role.name,scope:role.assignmentRule || 'По оргструктуре',purpose:role.purpose,assignmentType:role.assignmentType}));
+      if (result.updates?.coordinator) state.coordinatorRule = result.updates.coordinator;
+      if (result.message) state.participantLiveHistory.push({role:'assistant',text:result.message});
+      state.participantLivePrompt = result.question ? [result.question,result.hint || 'Я подберу правило назначения по справочнику бизнес ролей.'] : null;
+      state.participantLiveSuggestions = Array.isArray(result.suggestions) ? result.suggestions.slice(0,4) : [];
+      state.participantAssistantStep = result.ready || (state.newRoles.length && state.coordinatorRule) ? 3 : Math.min(2,step + 1);
+    } catch (error) {
+      state.participantError = 'Живой подбор временно недоступен. Использую локальный справочник.';
+      if (step === 1) state.newRoles = parseRoles(text).filter(role => role.source !== 'Системная связь').map(role => ({name:role.name,scope:role.scope}));
+      if (step === 2) state.coordinatorRule = /руковод/.test(text.toLowerCase()) ? 'Руководитель подразделения по оргструктуре' : /назнач/.test(text.toLowerCase()) ? 'Назначающий администратор' : 'HRBP подразделения сотрудника';
+      state.participantAssistantStep += 1;
+    } finally { state.participantBusy = false; render(); }
     requestAnimationFrame(() => {
       const thread = document.querySelector('.participant-assistant-shell .assistant-thread');
       if (thread) thread.scrollTop = thread.scrollHeight;
     });
   };
 
-  const generateProcess = () => {
-    loadWorkflow('courier');
+  const generateProcess = async () => {
+    if (state.processGenerating) return;
+    state.processGenerating = true;
+    toast('AI анализирует запуск, аудиторию, роли и каталоги…');
+    let generated = null;
+    try {
+      const query = [...Object.values(state.assistantAnswers || {}),(state.newRoles||[]).map(role=>role.name).join(' ')].join(' ');
+      const result = await window.SkillazLiveAI.ask('process', {
+        message:'Собери полный черновик процесса',
+        context:{launch:state.assistantAnswers || {},roles:state.newRoles || [],coordinator:state.coordinatorRule},
+        history:[...(state.assistantLiveHistory||[]),...(state.participantLiveHistory||[])],
+        catalog:window.SkillazLiveAI.context(query)
+      });
+      generated = result.process;
+    } catch (error) { state.participantError = 'Не удалось получить живую генерацию — открыт демонстрационный черновик.'; }
+
+    if (generated?.stages?.length && generated?.branches?.length) {
+      stages.splice(0,stages.length,...generated.stages.map((stage,index)=>({id:stage.id||`stage-${index+1}`,name:stage.name,days:String(stage.days||''),count:0})));
+      branches.splice(0,branches.length,...generated.branches.map((branch,index)=>({id:branch.id||`branch-${index+1}`,name:branch.name,meta:[branch.condition||'По условиям аудитории','AI'],desc:branch.condition||'',conditions:[branch.condition||'']})));
+      state.items = {};
+      const typeMap = {test:'assessment',checkpoint:'assessment',meeting:'task',action:'task',goal:'task'};
+      (generated.items||[]).forEach((item,index)=>{
+        const branchId = branches.some(branch=>branch.id===item.branchId) ? item.branchId : branches[0].id;
+        const stageId = stages.some(stage=>stage.id===item.stageId) ? item.stageId : stages[0].id;
+        const cell = `${branchId}-${stageId}`;
+        const id = item.id||`ai-${index}`;
+        (state.items[cell] ||= []).push({id,type:typeMap[item.type]||item.type||'task',title:item.title,meta:item.assignee||'AI · каталог',sourceId:item.sourceId,outcomes:item.outcomes||[]});
+        if (item.outcomes?.[0] && state.outcomeRules) state.outcomeRules[id] = {condition:item.outcomes[0].if,action:item.outcomes[0].then};
+      });
+      extras = {};
+      state.processTitle = generated.title || state.assistantAnswers?.scenario || 'Новый процесс';
+      state.generatedAiProcess = generated;
+    } else loadWorkflow('courier');
     state.newWorkflow = true;
     state.workflow = 'generated';
     state.generatedProcess = true;
@@ -115,8 +174,9 @@
     state.step = 'canvas';
     state.view = 'canvas';
     state.layer = 'process';
+    state.processGenerating = false;
     render();
-    setTimeout(() => toast('AI собрал черновик: 6 этапов, 4 ветки и элементы из демонстрационных каталогов'), 120);
+    setTimeout(() => toast(generated ? `AI собрал черновик: ${stages.length} этапов, ${branches.length} веток и ${Object.values(state.items).flat().length} элементов` : 'Открыт демонстрационный черновик'), 120);
   };
 
   hub = tableHub;
