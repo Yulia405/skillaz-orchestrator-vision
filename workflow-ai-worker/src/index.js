@@ -34,7 +34,7 @@ export default {
     const origin = request.headers.get('origin') || '';
     if (request.method === 'OPTIONS') return new Response(null,{status:204,headers:cors(origin)});
     const url = new URL(request.url);
-    if (url.pathname === '/health') return json({ok:true,model:env.OPENAI_MODEL || 'gpt-5-mini'},200,origin);
+    if (url.pathname === '/health') return json({ok:true,model:env.OPENAI_MODEL || 'gpt-4.1-mini'},200,origin);
     if (url.pathname !== '/assistant' || request.method !== 'POST') return json({error:'Not found'},404,origin);
     if (!ALLOWED_ORIGINS.has(origin) && !/^http:\/\/(127\.0\.0\.1|localhost)(:\d+)?$/.test(origin)) return json({error:'Origin is not allowed'},403,origin);
     if (!env.OPENAI_API_KEY) return json({error:'AI secret is not configured'},503,origin);
@@ -62,11 +62,11 @@ export default {
       method:'POST',
       headers:{'authorization':`Bearer ${env.OPENAI_API_KEY}`,'content-type':'application/json'},
       body:JSON.stringify({
-        model:env.OPENAI_MODEL || 'gpt-5-mini',
+        model:env.OPENAI_MODEL || 'gpt-4.1-mini',
         instructions:`${TASK_INSTRUCTIONS[task]}\n\n${contract}`,
-        input:JSON.stringify(input),
+        input:`Return valid json for this request:\n${JSON.stringify(input)}`,
         text:{format:{type:'json_object'}},
-        max_output_tokens:6000
+        max_output_tokens:task === 'process' ? 5000 : task === 'elements' ? 2400 : 1400
       })
     });
     const upstream = await response.json();
