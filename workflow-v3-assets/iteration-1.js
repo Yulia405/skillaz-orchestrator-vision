@@ -326,6 +326,7 @@
       });
       Object.entries(result.updates || {}).forEach(([key,val]) => { if (val && key in state.assistantAnswers) state.assistantAnswers[key] = val; });
       if (!state.assistantAnswers.audienceIntent) state.assistantAnswers.audienceIntent = value;
+      if (!state.assistantAnswers.audience && state.assistantAnswers.audienceIntent && /для|сотруд|маркет|кассир|продав|курьер|водител|оператор|руковод|аналит|подраздел|отдел/i.test(state.assistantAnswers.audienceIntent)) state.assistantAnswers.audience = state.assistantAnswers.audienceIntent;
       state.assistantAnswers.event = normalizedEvent(state.assistantAnswers.event);
       state.assistantAnswers.timing = normalizedTiming(state.assistantAnswers.timing);
       state.assistantAnswers.pathType = normalizedPath(state.assistantAnswers.pathType);

@@ -119,13 +119,25 @@
     const words = normalizedScope(value).split(/[^а-яa-z0-9]+/).filter(word=>word.length>4&&!stop.some(stem=>word.startsWith(stem)));
     return words.some(word=>audience.includes(word) || audience.includes(word.slice(0,Math.min(5,word.length))));
   };
+  const audienceMentions = value => {
+    const tokens = normalizedScope(answers().audience).split(/[^а-яa-z0-9]+/).filter(Boolean);
+    const target = normalizedScope(value);
+    const distance = (left,right) => {
+      const row = Array.from({length:right.length+1},(_,index)=>index);
+      for (let i=1;i<=left.length;i++) { let previous=row[0]; row[0]=i; for (let j=1;j<=right.length;j++) { const current=row[j]; row[j]=Math.min(row[j]+1,row[j-1]+1,previous+(left[i-1]===right[j-1]?0:1)); previous=current; } }
+      return row[right.length];
+    };
+    const prefixLength = target.length >= 8 ? 8 : target.length >= 5 ? target.length - 1 : target.length;
+    return tokens.some(token=>token===target || (prefixLength>=4&&token.slice(0,prefixLength)===target.slice(0,prefixLength)) || (target.length<=4&&token.slice(0,2)===target.slice(0,2)&&distance(token,target)<=2));
+  };
   const checkedScope = (type,id,value,index,suppressDefault=false) => state.scopeSelections[type]?.includes(id) || audienceMatches(value) || (!suppressDefault && !state.scopeSelections[type]?.length && index < 2);
   const domainLabel = value => ({retail:'Розница',logistics:'Логистика',production:'Производство',office:'Офис'}[value] || value);
   const levelLabel = value => ({manager:'Руководитель',senior:'Старший специалист',specialist:'Специалист'}[value] || value);
-  const renderOrgNode = (node,depth=0,index=0) => {
-    const selected = checkedScope('org',node.id,node.name,index);
+  const orgHasContextMatch = node => audienceMatches(node.name) || (node.children || []).some(orgHasContextMatch);
+  const renderOrgNode = (node,depth=0,index=0,suppressDefault=false) => {
+    const selected = checkedScope('org',node.id,node.name,index,suppressDefault);
     if (!node.children?.length) return `<label class="tree-leaf"><input type="checkbox" data-scope-value="${node.id}" data-scope-label="${node.name}" ${selected?'checked':''}><span><b>${node.name}</b><small>ID ${node.id} · ${node.type}</small></span></label>`;
-    return `<details ${depth < 2?'open':''}><summary><span class="tree-chevron">›</span><label><input type="checkbox" data-scope-value="${node.id}" data-scope-label="${node.name}" ${selected?'checked':''}><b>${node.name}</b><small>${node.children.length}</small></label><em>${node.type}</em></summary><div class="tree-children">${node.children.map((child,childIndex)=>renderOrgNode(child,depth+1,childIndex)).join('')}</div></details>`;
+    return `<details ${depth < 2?'open':''}><summary><span class="tree-chevron">›</span><label><input type="checkbox" data-scope-value="${node.id}" data-scope-label="${node.name}" ${selected?'checked':''}><b>${node.name}</b><small>${node.children.length}</small></label><em>${node.type}</em></summary><div class="tree-children">${node.children.map((child,childIndex)=>renderOrgNode(child,depth+1,childIndex,suppressDefault)).join('')}</div></details>`;
   };
 
   const scopePicker = () => {
@@ -134,14 +146,17 @@
     const query = referenceQuery();
     if (state.scopePicker === 'org') {
       const trees = directory?.relevantStructures(query) || [];
-      return `<div class="local-overlay scope-picker-overlay" role="dialog" aria-modal="true" aria-label="Выбор оргструктуры"><section class="scope-picker-card org-tree-card"><header><div><span class="tag blue">Базовый охват</span><h2>Оргструктура</h2><p>Показаны подразделения, подходящие контексту процесса. Можно раскрывать узлы и выбирать дочерние подразделения.</p></div><button class="btn icon-only" data-local-action="close-scope-picker">×</button></header><div class="directory-context"><b>Подобрано по контексту</b><span>${trees.map(tree=>tree.name).join(', ')}</span></div><div class="org-tree" role="tree">${trees.map((tree,index)=>renderOrgNode(tree,0,index)).join('')}</div><footer><button class="btn" data-local-action="close-scope-picker">Отмена</button><button class="btn primary" data-local-action="apply-scope-picker">Применить выбор</button></footer></section></div>`;
+      const suppressDefault = trees.some(orgHasContextMatch);
+      return `<div class="local-overlay scope-picker-overlay" role="dialog" aria-modal="true" aria-label="Выбор оргструктуры"><section class="scope-picker-card org-tree-card"><header><div><span class="tag blue">Базовый охват</span><h2>Оргструктура</h2><p>Показаны подразделения, подходящие контексту процесса. Можно раскрывать узлы и выбирать дочерние подразделения.</p></div><button class="btn icon-only" data-local-action="close-scope-picker">×</button></header><div class="directory-context"><b>Подобрано по контексту</b><span>${trees.map(tree=>tree.name).join(', ')}</span></div><div class="org-tree" role="tree">${trees.map((tree,index)=>renderOrgNode(tree,0,index,suppressDefault)).join('')}</div><footer><button class="btn" data-local-action="close-scope-picker">Отмена</button><button class="btn primary" data-local-action="apply-scope-picker">Применить выбор</button></footer></section></div>`;
     }
-    const rows = state.scopePicker === 'role' ? (directory?.relevantPositions(query,18)||[]).map(row=>({id:row.id,label:row.title,meta:`${domainLabel(row.domain)} · ${levelLabel(row.level)}`}))
+    const cityRows = (directory?.regions || []).flatMap(region => region.cities.map(city=>({id:`${region.id}-city-${normalizedScope(city)}`,label:city,meta:`Город · ${region.name} · ${region.district}`,preselected:audienceMentions(city)}))).filter(row=>row.preselected);
+    const rows = state.scopePicker === 'role' ? (directory?.relevantPositions(query,18)||[]).map(row=>({id:row.id,label:row.title,meta:`${domainLabel(row.domain)} · ${levelLabel(row.level)}`,preselected:audienceMentions(row.title)||audienceMatches(row.title)}))
       : state.scopePicker === 'group' ? (directory?.relevantGroups(query,14)||[]).map(row=>({id:row.id,label:row.name,meta:row.rule}))
-      : [{id:'all-regions',label:'Все регионы присутствия',meta:'Все площадки выбранной структуры'},...(directory?.relevantRegions(query,18)||[]).map(row=>({id:row.id,label:row.name,meta:`${row.district} · ${row.cities.slice(0,4).join(', ')}`}))];
+      : [...cityRows,{id:'all-regions',label:'Все регионы присутствия',meta:'Все площадки выбранной структуры'},...(directory?.relevantRegions(query,18)||[]).map(row=>({id:row.id,label:row.name,meta:`${row.district} · ${row.cities.slice(0,4).join(', ')}`}))];
     const title = {role:'Должности',group:'Группы сотрудников',location:'Территория'}[state.scopePicker];
-    const suppressDefault = state.scopePicker === 'location' && rows.some(row=>audienceMatches(row.label));
-    return `<div class="local-overlay scope-picker-overlay" role="dialog" aria-modal="true" aria-label="Выбор охвата"><section class="scope-picker-card reference-picker-card"><header><div><span class="tag blue">Базовый охват</span><h2>${title}</h2><p>Справочник отфильтрован по должностям, структуре и сценарию из диалога с AI.</p></div><button class="btn icon-only" data-local-action="close-scope-picker">×</button></header><div class="directory-context"><b>Найдено по контексту</b><span>${rows.length} значений · первые варианты рекомендованы</span></div><div class="scope-options reference-options">${rows.map((row,index)=>`<label><input type="checkbox" data-scope-value="${row.id}" data-scope-label="${row.label}" ${checkedScope(state.scopePicker,row.id,row.label,index,suppressDefault)?'checked':''}><span><b>${row.label}</b><small>${row.meta}</small></span></label>`).join('')}</div><footer><button class="btn" data-local-action="close-scope-picker">Отмена</button><button class="btn primary" data-local-action="apply-scope-picker">Применить выбор</button></footer></section></div>`;
+    const suppressDefault = state.scopePicker === 'location' ? (cityRows.length > 0 || rows.some(row=>audienceMatches(`${row.label} ${row.meta}`))) : state.scopePicker === 'role' ? rows.some(row=>row.preselected) : false;
+    const rowChecked = (row,index) => row.preselected || (state.scopePicker==='location'&&cityRows.length ? state.scopeSelections.location.includes(row.id) : checkedScope(state.scopePicker,row.id,`${row.label} ${row.meta}`,index,suppressDefault));
+    return `<div class="local-overlay scope-picker-overlay" role="dialog" aria-modal="true" aria-label="Выбор охвата"><section class="scope-picker-card reference-picker-card"><header><div><span class="tag blue">Базовый охват</span><h2>${title}</h2><p>Справочник отфильтрован по должностям, структуре и сценарию из диалога с AI.</p></div><button class="btn icon-only" data-local-action="close-scope-picker">×</button></header><div class="directory-context"><b>Найдено по контексту</b><span>${rows.length} значений · первые варианты рекомендованы</span></div><div class="scope-options reference-options">${rows.map((row,index)=>`<label><input type="checkbox" data-scope-value="${row.id}" data-scope-label="${row.label}" ${rowChecked(row,index)?'checked':''}><span><b>${row.label}</b><small>${row.meta}</small></span></label>`).join('')}</div><footer><button class="btn" data-local-action="close-scope-picker">Отмена</button><button class="btn primary" data-local-action="apply-scope-picker">Применить выбор</button></footer></section></div>`;
   };
 
   basePageV2 = () => state.newWorkflow ? launchPage() : previousBasePage();

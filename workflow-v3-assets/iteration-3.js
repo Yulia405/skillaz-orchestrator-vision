@@ -11,6 +11,9 @@
   state.participantBusy ??= false;
   state.participantError ??= '';
   state.processGenerating ??= false;
+  state.rolePickerOpen ??= false;
+  state.roleEditIndex ??= null;
+  state.demoDraftId ??= null;
 
   const previousHub = hub;
   const previousEditor = editor;
@@ -40,23 +43,66 @@
     return [source.slice(0,3),[source[0],source[3]].filter(Boolean),source.slice(1,4)].filter(group=>group.length).map(group=>group.map(row=>row.name).join(', '));
   };
 
+  const rolePicker = () => {
+    if (!state.rolePickerOpen) return '';
+    const contextual = roleDirectory();
+    const preferredDomain = contextual[0]?.domain;
+    const all = (window.SkillazReferenceData?.businessRoles || []).map(row=>({name:row.name,scope:row.assignmentRule,source:'Справочник бизнес-ролей',use:row.purpose,assignmentType:row.assignmentType,domain:row.domain}));
+    const rows = [...contextual,...all.filter(row=>!contextual.some(item=>item.name===row.name))];
+    const labels = {retail:'Розница',logistics:'Логистика',production:'Производство',office:'Офис'};
+    return `<div class="local-overlay role-picker-overlay" role="dialog" aria-modal="true" aria-label="Справочник бизнес-ролей"><section class="role-picker-card"><header><div><span class="tag blue">Справочник бизнес-ролей</span><h2>${state.roleEditIndex===null?'Добавить бизнес-роль':'Изменить бизнес-роль'}</h2><p>Сначала показаны роли, подходящие выбранной структуре, должностям и сценарию.</p></div><button class="btn icon-only" data-role-action="close-picker">×</button></header><div class="role-picker-search"><input placeholder="Найти роль по названию" data-role-search><span>${rows.length} ролей</span></div><div class="role-picker-list">${rows.map((role,index)=>`<button data-role-action="select-role" data-role-name="${safe(role.name)}" data-role-search-text="${safe(`${role.name} ${role.use} ${labels[role.domain]||role.domain}`.toLowerCase())}" class="${role.domain===preferredDomain?'recommended':''}"><span><b>${safe(role.name)}</b><small>${safe(role.use)}</small></span><em>${safe(labels[role.domain]||role.domain)} · ${role.assignmentType==='administrative'?'Административная':'Функциональная'}</em>${role.domain===preferredDomain&&index<6?'<i>Рекомендуется</i>':''}</button>`).join('')}</div><footer><button class="btn" data-role-action="close-picker">Отмена</button></footer></section></div>`;
+  };
+
   const safe = value => String(value || '').replace(/[&<>"']/g, symbol => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[symbol]));
+
+  const clone = value => JSON.parse(JSON.stringify(value));
+  const draftSnapshot = () => ({
+    stages:clone(stages), branches:clone(branches), items:clone(state.items || {}), extras:clone(extras || {}),
+    state:clone({processTitle:state.processTitle,assistantAnswers:state.assistantAnswers,manualLaunch:state.manualLaunch,launchConfigured:state.launchConfigured,scopeSelections:state.scopeSelections,newRoles:state.newRoles,coordinatorRule:state.coordinatorRule,generatedProcess:state.generatedProcess,generatedAiProcess:state.generatedAiProcess,goalScenarios:state.goalScenarios,ktScenarios:state.ktScenarios,outcomeRules:state.outcomeRules}),
+    ai:typeof aiState === 'object' ? clone({goals:aiState.goals,sessions:aiState.sessions,creator:aiState.creator}) : null
+  });
+  const persistDraft = () => {
+    if (!state.demoDraftId || !state.newWorkflow || !window.SkillazDemoDB) return;
+    const existing = window.SkillazDemoDB.loadProcesses().find(row=>row.id===state.demoDraftId);
+    const now = new Date();
+    const title = state.processTitle || state.assistantAnswers?.scenario || 'Новый процесс';
+    const count = Object.values(state.items || {}).reduce((sum,list)=>sum+list.length,0);
+    window.SkillazDemoDB.saveProcess({id:state.demoDraftId,title,scenario:state.assistantAnswers?.scenario||'Черновик',status:'Черновик',branches:branches.length,elements:count,createdAt:existing?.createdAt||now.toISOString(),updatedAt:now.toISOString(),deletable:true});
+    window.SkillazDemoDB.saveWorkflow(state.demoDraftId,draftSnapshot());
+  };
+  const openDraft = id => {
+    const saved = window.SkillazDemoDB?.loadWorkflow(id);
+    if (!saved) return;
+    stages.splice(0,stages.length,...clone(saved.stages || []));
+    branches.splice(0,branches.length,...clone(saved.branches || []));
+    state.items = clone(saved.items || {});
+    extras = clone(saved.extras || {});
+    Object.assign(state,clone(saved.state || {}),{screen:'editor',step:'base',view:'canvas',layer:'process',newWorkflow:true,workflow:id,demoDraftId:id,paletteOpen:false,rolePickerOpen:false,participantAssistantOpen:false});
+    if (saved.ai && typeof aiState === 'object') Object.assign(aiState,clone(saved.ai));
+    render();
+  };
+  const formatDraftDate = value => {
+    const date = new Date(value || Date.now());
+    return new Intl.DateTimeFormat('ru-RU',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}).format(date).replace(',',' ·');
+  };
 
   const tableHub = () => {
     const inherited = previousHub();
     const overlayIndex = inherited.indexOf('<div class="local-overlay');
     const overlays = overlayIndex >= 0 ? inherited.slice(overlayIndex) : '';
     const rows = [
-      ['courier','Новый сотрудник логистического центра','Новый сотрудник','Черновик','4','96','Сегодня, 12:40'],
-      ['courier','Пребординг массовых сотрудников','Пребординг','Опубликован','4','42','Вчера, 18:10'],
-      ['manager','Вход руководителя клиентского офиса','Новая роль','Черновик','3','82','29 сентября'],
-      ['courier','Новый сотрудник розничной сети','Новый сотрудник','На проверке','3','54','27 сентября']
+      {id:'courier',title:'Новый сотрудник логистического центра',scenario:'Новый сотрудник',status:'Черновик',branches:'4',elements:'96',updated:'Сегодня, 12:40'},
+      {id:'courier',title:'Пребординг массовых сотрудников',scenario:'Пребординг',status:'Опубликован',branches:'4',elements:'42',updated:'Вчера, 18:10'},
+      {id:'manager',title:'Вход руководителя клиентского офиса',scenario:'Новая роль',status:'Черновик',branches:'3',elements:'82',updated:'29 сентября'},
+      {id:'courier',title:'Новый сотрудник розничной сети',scenario:'Новый сотрудник',status:'На проверке',branches:'3',elements:'54',updated:'27 сентября'}
     ];
+    const drafts = (window.SkillazDemoDB?.loadProcesses() || []).map(row=>({...row,updated:formatDraftDate(row.updatedAt),custom:true}));
+    const allRows = [...drafts,...rows];
     return `<div class="hub process-hub"><header class="topbar"><div class="brand"><span class="brand-mark">S</span>Skillaz Start</div><div class="crumb">Процессы входа в роль</div><div class="topbar-spacer"></div><button class="btn">Справка</button></header>
       <main class="hub-main process-list-page"><div class="hub-head"><div><h1>Процессы</h1><p class="muted">Пребординг, новый сотрудник и вход в новую роль.</p></div><button class="btn primary" data-action="new">＋ Новый процесс</button></div>
-      <div class="process-list-controls"><div class="process-search">⌕ <input placeholder="Найти процесс"></div><button class="btn">Все сценарии</button><button class="btn">Все статусы</button><span>${rows.length} процесса</span></div>
+      <div class="process-list-controls"><div class="process-search">⌕ <input placeholder="Найти процесс" data-process-search></div><button class="btn">Все сценарии</button><button class="btn">Все статусы</button><span>${allRows.length} процессов</span></div>
       <section class="process-table"><div class="process-row process-head"><span>Название</span><span>Сценарий</span><span>Статус</span><span>Ветки</span><span>Элементы</span><span>Изменён</span><span></span></div>
-      ${rows.map(row => `<div class="process-row"><span><b>${row[1]}</b><small>Автоматический запуск · мастер-система</small></span><span>${row[2]}</span><span><i class="status-pill ${row[3] === 'Опубликован' ? 'green' : row[3] === 'На проверке' ? 'amber' : ''}">${row[3]}</i></span><span>${row[4]}</span><span>${row[5]}</span><span>${row[6]}</span><span><button class="btn small" data-workflow="${row[0]}">Открыть</button></span></div>`).join('')}</section>
+      ${allRows.map(row => `<div class="process-row" data-process-search-row="${safe(`${row.title} ${row.scenario} ${row.status}`.toLowerCase())}"><span><b>${safe(row.title)}</b><small>${row.custom?'Локальный демо-черновик':'Автоматический запуск · мастер-система'}</small></span><span>${safe(row.scenario)}</span><span><i class="status-pill ${row.status === 'Опубликован' ? 'green' : row.status === 'На проверке' ? 'amber' : ''}">${safe(row.status)}</i></span><span>${row.branches}</span><span>${row.elements}</span><span>${safe(row.updated)}</span><span class="process-row-actions"><button class="btn small" ${row.custom?`data-demo-draft="${row.id}"`:`data-workflow="${row.id}"`}>Открыть</button>${row.custom?`<button class="btn icon-only small danger" data-delete-demo-draft="${row.id}" title="Удалить черновик">×</button>`:''}</span></div>`).join('')}</section>
       </main></div>${overlays}`;
   };
 
@@ -92,8 +138,8 @@
     return `<div class="editor-toolbar participant-toolbar"><div><b>Участники и сопровождение</b><small>${roles.length ? `${roles.length} бизнес-роли настроено` : 'Нужно определить помощников и координатора'}</small></div><div class="topbar-spacer"></div><button class="btn" data-participant-action="open-assistant">✦ Настроить с помощником</button><span class="tag ${roles.length && state.coordinatorRule ? 'green' : ''}">${roles.length && state.coordinatorRule ? 'Настроено' : 'Черновик'}</span></div>
       <div class="page participants-page"><div class="page-card wide-card"><div class="settings-title"><div><span class="tag blue">Шаг 2 · Участники</span><h1>Кто помогает сотруднику пройти процесс</h1><p class="muted">Задайте роли. Конкретных людей система найдёт при назначении плана по структуре и доступности.</p></div></div>
       <h2 class="role-section-title">Системные роли</h2><div class="system-roles"><section><span class="tag blue">Всегда</span><h3>Сотрудник</h3><p>Получает персональный план</p></section><section class="manager-source-card"><span class="tag blue">Источник из оргструктуры</span><h3>Руководитель</h3><p>Выберите, кого система назначит в план.</p><div class="manager-source-options"><label><input type="radio" name="managerSource" checked> Административный</label><label><input type="radio" name="managerSource"> Функциональный</label></div></section></div>
-      <div class="role-section-head"><div><h2>Бизнес-роли</h2><p class="muted">В рабочей версии роли выбираются из справочника бизнес-ролей, а AI рекомендует подходящие по аудитории и сценарию.</p></div><button class="btn" data-participant-action="open-assistant">Изменить подбор</button></div>
-      ${roles.length ? `<div class="business-role-table"><div class="role-row head"><span>Роль</span><span>Охват</span><span>Назначение</span><span>Источник</span></div>${roles.map(role => `<div class="role-row"><span><b>${role.name}</b></span><span>${role.scope}</span><span>${role.use}</span><span><span class="tag green">${role.source}</span></span></div>`).join('')}</div>` : `<div class="empty-setting"><b>Помощники ещё не выбраны</b><span>Расскажите помощнику, кто сопровождает сотрудника: наставник, HR, эксперт, IT или другая бизнес-роль.</span></div>`}
+      <div class="role-section-head"><div><h2>Бизнес-роли</h2><p class="muted">Выберите роль из справочника вручную или попросите AI подобрать набор по аудитории и сценарию.</p></div><div class="role-head-actions"><button class="btn" data-role-action="open-picker">＋ Добавить роль</button><button class="btn" data-participant-action="open-assistant">✦ Подобрать с AI</button></div></div>
+      ${roles.length ? `<div class="business-role-table editable-role-table"><div class="role-row head"><span>Роль</span><span>Охват</span><span>Назначение</span><span>Действия</span></div>${roles.map((role,index) => `<div class="role-row"><span><b>${role.name}</b><small>${role.assignmentType==='administrative'?'Административная':'Функциональная'} роль</small></span><span>${role.scope}</span><span>${role.use}</span><span class="role-row-actions"><button class="btn small" data-role-action="edit-role" data-role-index="${index}">Изменить</button><button class="btn icon-only small" data-role-action="delete-role" data-role-index="${index}" title="Удалить роль">×</button></span></div>`).join('')}</div>` : `<div class="empty-setting"><b>Помощники ещё не выбраны</b><span>Добавьте роль из справочника или попросите AI подобрать наставника, HR, эксперта и других участников.</span></div>`}
       <section class="coordinator-card ${state.coordinatorRule ? 'ready' : ''}"><div><span class="tag">Владелец сопровождения</span><h2>Координатор процесса</h2><p>${state.coordinatorRule || 'Не определён. Координатор видит прогресс, просрочки и получает уведомления по отклонениям.'}</p></div><button class="btn" data-participant-action="open-assistant">${state.coordinatorRule ? 'Изменить' : 'Определить'}</button></section>
       <div class="wizard-next"><button class="btn" data-step="base">← Вернуться к запуску</button><button class="btn primary" data-participant-action="generate-process" ${roles.length && state.coordinatorRule ? '' : 'disabled title="Сначала настройте помощников и координатора"'}>✦ Перейти к процессу и собрать черновик</button></div>
       </div></div>`;
@@ -218,7 +264,21 @@
         agenda:checkpoint.result||'Проверить результат этапа и договориться о следующих шагах.',pulse:checkpoint.onFail||'Какая поддержка нужна сотруднику?',participants:checkpoint.participants||[]
       }))}];
     } else {
-      loadWorkflow('courier');
+      const contextText = [...Object.values(state.assistantAnswers || {}),state.manualLaunch?.audience || ''].join(' ');
+      const selectedPositionNames = (window.SkillazReferenceData?.positions || []).filter(position=>state.scopeSelections?.role?.includes(position.id)).map(position=>position.title);
+      const audienceNames = selectedPositionNames.length ? selectedPositionNames : [state.assistantAnswers?.audience || state.assistantAnswers?.audienceIntent || 'Выбранная аудитория'];
+      stages.splice(0,stages.length,
+        {id:'local-stage-1',name:'Подготовка до старта',days:'до 1 дня',count:0},
+        {id:'local-stage-2',name:'Знакомство и базовое обучение',days:'до 7 дня',count:0},
+        {id:'local-stage-3',name:'Практика с наставником',days:'до 14 дня',count:0},
+        {id:'local-stage-4',name:'Проверка знаний и навыков',days:'до 30 дня',count:0},
+        {id:'local-stage-5',name:'Самостоятельная работа',days:'до 60 дня',count:0}
+      );
+      branches.splice(0,branches.length,{id:'local-common',name:'Общая часть',meta:['Вся аудитория','AI'],desc:'Вся выбранная аудитория',conditions:['Вся выбранная аудитория']},...audienceNames.slice(0,4).map((name,index)=>({id:`local-role-${index+1}`,name:`Путь: ${name}`,meta:[`Должность: ${name}`,'AI'],desc:`Должность: ${name}`,conditions:[`Должность: ${name}`]})));
+      state.items = {};
+      extras = {};
+      state.processTitle = state.assistantAnswers?.scenario && state.assistantAnswers.scenario !== 'Новый сотрудник' ? state.assistantAnswers.scenario : `Адаптация: ${audienceNames.join(', ')}`;
+      enrichGeneratedItems();
       const fallbackItems = Object.values(state.items).flat().filter(item=>['task','course','assessment'].includes(item.type));
       const fallbackLinks = fallbackItems.slice(0,3).map(item=>({id:item.id,title:item.title}));
       aiState.goals = [{
@@ -231,7 +291,7 @@
         {id:'fallback-kt-2',title:'Проверка практики',day:30,agenda:'Проверить выполнение ключевых действий под наблюдением',pulse:'Что мешает работать самостоятельно?',participants:['Наставник','Эксперт']},
         {id:'fallback-kt-3',title:'Финальный допуск',day:60,agenda:state.assistantAnswers?.result||'Подтвердить готовность к самостоятельной работе',pulse:'Готов ли сотрудник к самостоятельной работе?',participants:['Руководитель','Проверяющий']}
       ]}];
-      state.generatedAiProcess = {title:state.processTitle||'Черновик процесса',goals:aiState.goals,checkpoints:aiState.sessions[0].entries};
+      state.generatedAiProcess = {title:state.processTitle||'Черновик процесса',context:contextText,goals:aiState.goals,checkpoints:aiState.sessions[0].entries};
     }
     state.newWorkflow = true;
     state.workflow = 'generated';
@@ -252,7 +312,27 @@
   editor = () => {
     const content = previousEditor();
     const titled = state.generatedProcess ? content.replace('<b>Новый workflow</b>','<b>Новый процесс логистического центра</b>') : content;
-    return titled + participantAssistant();
+    return titled + participantAssistant() + rolePicker();
+  };
+
+  const originalDraftStart = startNewWorkflow;
+  startNewWorkflow = function () {
+    originalDraftStart();
+    state.demoDraftId = `draft-${Date.now()}`;
+    state.processTitle = 'Новый процесс';
+    persistDraft();
+  };
+  const originalDraftLoad = loadWorkflow;
+  loadWorkflow = function (id) {
+    if (!state.processGenerating) state.demoDraftId = null;
+    originalDraftLoad(id);
+  };
+  const originalDraftRender = render;
+  let draftSaveTimer = 0;
+  render = function () {
+    clearTimeout(draftSaveTimer);
+    if (state.demoDraftId && state.newWorkflow) draftSaveTimer = setTimeout(persistDraft,80);
+    originalDraftRender();
   };
 
   if (!window.__workflowIterationThreeBound) {
@@ -264,6 +344,32 @@
       submitParticipant(form.querySelector('[data-participant-input]')?.value);
     }, true);
     document.addEventListener('click', event => {
+      const openDraftNode = event.target.closest('[data-demo-draft]');
+      if (openDraftNode) { event.preventDefault(); event.stopImmediatePropagation(); openDraft(openDraftNode.dataset.demoDraft); return; }
+      const deleteDraftNode = event.target.closest('[data-delete-demo-draft]');
+      if (deleteDraftNode) {
+        event.preventDefault(); event.stopImmediatePropagation();
+        window.SkillazDemoDB?.deleteProcess(deleteDraftNode.dataset.deleteDemoDraft);
+        render(); toast('Черновик удалён'); return;
+      }
+      if (event.target.closest('[data-action="home"]')) persistDraft();
+      const roleNode = event.target.closest('[data-role-action]');
+      if (roleNode) {
+        event.preventDefault();
+        const action = roleNode.dataset.roleAction;
+        if (action === 'open-picker') { state.rolePickerOpen = true; state.roleEditIndex = null; render(); return; }
+        if (action === 'close-picker') { state.rolePickerOpen = false; state.roleEditIndex = null; render(); return; }
+        if (action === 'edit-role') { state.rolePickerOpen = true; state.roleEditIndex = Number(roleNode.dataset.roleIndex); render(); return; }
+        if (action === 'delete-role') { state.newRoles.splice(Number(roleNode.dataset.roleIndex),1); render(); toast('Бизнес-роль удалена'); return; }
+        if (action === 'select-role') {
+          const found = roleDirectory().find(role=>role.name===roleNode.dataset.roleName) || (window.SkillazReferenceData?.businessRoles||[]).find(role=>role.name===roleNode.dataset.roleName);
+          const next = {name:roleNode.dataset.roleName,scope:found?.scope||found?.assignmentRule||'По оргструктуре сотрудника',purpose:found?.use||found?.purpose||'Действия процесса',assignmentType:found?.assignmentType||'functional'};
+          if (state.roleEditIndex===null) {
+            if (!state.newRoles.some(role=>role.name===next.name)) state.newRoles.push(next);
+          } else state.newRoles[state.roleEditIndex] = next;
+          state.rolePickerOpen = false; state.roleEditIndex = null; render(); toast('Бизнес-роль сохранена'); return;
+        }
+      }
       const suggestion = event.target.closest('[data-participant-suggest]');
       if (suggestion) { event.preventDefault(); submitParticipant(suggestion.dataset.participantSuggest); return; }
       const node = event.target.closest('[data-participant-action]');
@@ -278,6 +384,18 @@
       if (action === 'close-assistant') { state.participantAssistantOpen = false; render(); }
       if (action === 'finish-assistant') { state.participantAssistantOpen = false; render(); }
       if (action === 'generate-process') generateProcess();
+    }, true);
+    document.addEventListener('input', event => {
+      if (event.target.matches('[data-process-search]')) {
+        const query = event.target.value.trim().toLowerCase().replace(/ё/g,'е');
+        document.querySelectorAll('[data-process-search-row]').forEach(row=>{ row.hidden = query && !row.dataset.processSearchRow.replace(/ё/g,'е').includes(query); });
+        return;
+      }
+      if (!event.target.matches('[data-role-search]')) return;
+      const query = event.target.value.trim().toLowerCase().replace(/ё/g,'е');
+      document.querySelectorAll('.role-picker-list [data-role-search-text]').forEach(row=>{
+        row.hidden = query && !row.dataset.roleSearchText.replace(/ё/g,'е').includes(query);
+      });
     }, true);
   }
 

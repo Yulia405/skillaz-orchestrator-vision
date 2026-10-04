@@ -342,7 +342,7 @@ function wireAi() {
       if (card) { card.querySelector('b').textContent = group.branches.map(id => aiBranch(id)?.name).filter(Boolean).join(', '); card.querySelector('.session-row').innerHTML = group.entries.map(entry => `<span>${entry.day} день · ${escapeAi(entry.title)}</span>`).join(''); }
     }
   }
-  if (state.scenarioModal) {
+  if (state.scenarioModal && !$('.clean-scenario-dialog')) {
     const goal = state.scenarioModal.startsWith('goal');
     const dialog = $('.scenario-dialog-v4');
     const creator = goal ? $('.form-grid select', dialog) : null;

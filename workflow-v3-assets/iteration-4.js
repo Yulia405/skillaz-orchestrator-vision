@@ -4,6 +4,8 @@
   state.cleanPaletteOpened ??= false;
   state.cleanCatalogType ??= '';
   state.outcomeModal ??= null;
+  state.goalScenarios ??= [];
+  state.ktScenarios ??= [];
   state.outcomeRules ??= {
     'base-day1-1': { condition:'Не пройден в срок', action:'Уведомить руководителя и сотрудника' },
     'base-immerse-0': { condition:'Результат ниже 80%', action:'Назначить дополнительный тест' }
@@ -32,14 +34,14 @@
     ];
   }
 
-  const iconByType = { course:'▣', task:'✓', article:'≡', test:'□', survey:'◉', action:'⚙', checkpoint:'◆', goal:'◎', meeting:'◈' };
-  const labelByType = { course:'Курс / программа', task:'Задача', article:'Статья Базы знаний', test:'Тест', survey:'Опрос', action:'Системное действие', checkpoint:'Контрольная точка', goal:'Цель', meeting:'Встреча' };
+  const iconByType = { course:'▣', task:'✓', article:'≡', file:'⇩', test:'□', survey:'◉', action:'⚙', checkpoint:'◆', goal:'◎', meeting:'◈' };
+  const labelByType = { course:'Курс / программа', task:'Задача', article:'Статья', file:'Файл', test:'Тест', survey:'Опрос', action:'Системное действие', checkpoint:'Шаблон контрольной точки', goal:'Шаблон цели', meeting:'Встреча' };
   const elementRows = () => {
     const db = window.SkillazDemoDB?.catalogs || {};
     const production = window.SkillazProductionCatalog?.elements || [];
-    const order = state.cleanCatalogType ? [state.cleanCatalogType] : ['course','article','task','test','survey','action'];
-    const source = {course:'LMS',article:'База знаний',task:'Шаблоны задач',test:'Оценка знаний',survey:'Опросы',action:'Skillaz'};
-    const usage = {course:'Назначается сотруднику',article:'Открывается в плане',task:'Создаёт задачу исполнителю',test:'Сохраняет результат',survey:'Собирает обратную связь',action:'Выполняется автоматически'};
+    const order = state.cleanCatalogType ? [state.cleanCatalogType] : ['course','article','file','task','test','survey','action','goal','checkpoint'];
+    const source = {course:'LMS',article:'База знаний',file:'Файлы клиента',task:'Шаблоны задач',test:'Оценка знаний',survey:'Опросы',action:'Skillaz',goal:'Каталог целей',checkpoint:'Каталог КТ'};
+    const usage = {course:'Назначается сотруднику',article:'Открывается в плане',file:'Доступен для скачивания',task:'Создаёт задачу исполнителю',test:'Сохраняет результат',survey:'Собирает обратную связь',action:'Выполняется автоматически',goal:'Создаётся по сценарию целей',checkpoint:'Запускается по сценарию КТ'};
     return order.flatMap(type => {
       const liveRows = production.filter(row => row.type === type).slice(0,12).map(row => ({id:row.id,type,title:row.title,meta:row.description,source:row.source,usage:usage[type]}));
       return liveRows.length ? liveRows : (db[type] || []).slice(0,12).map(row => ({id:row[0],type,title:row[1],meta:row[2],source:source[type],usage:usage[type]}));
@@ -87,9 +89,13 @@
     <header><b>Добавить в процесс</b><button class="btn icon-only small" data-clean-action="close-add">×</button></header>
     <button data-clean-element-type="task"><i>✓</i><span><b>Задача</b><small>Действие сотрудника или участника</small></span></button>
     <button data-clean-element-type="action"><i>⚙</i><span><b>Системное действие</b><small>Выполняется автоматически</small></span></button>
-    <button data-clean-element-type="course"><i>▣</i><span><b>Курс / материал</b><small>Объект из LMS или Базы знаний</small></span></button>
-    <button data-clean-action="goals"><i>◎</i><span><b>Цель</b><small>Создать вручную или предложить с AI</small></span></button>
-    <button data-clean-action="checkpoints"><i>◆</i><span><b>Контрольная точка</b><small>Создать вручную или предложить с AI</small></span></button>
+    <button data-clean-element-type="course"><i>▣</i><span><b>Курс / программа</b><small>Объект из LMS</small></span></button>
+    <button data-clean-element-type="article"><i>≡</i><span><b>Статья</b><small>Материал из Базы знаний</small></span></button>
+    <button data-clean-element-type="file"><i>⇩</i><span><b>Файл</b><small>PDF, документ или рабочая памятка</small></span></button>
+    <button data-clean-element-type="test"><i>□</i><span><b>Тест</b><small>Проверка знаний с результатом</small></span></button>
+    <button data-clean-element-type="survey"><i>◉</i><span><b>Опрос</b><small>Пульс или обратная связь</small></span></button>
+    <button data-clean-element-type="goal"><i>◎</i><span><b>Цель</b><small>Шаблон цели из каталога</small></span></button>
+    <button data-clean-element-type="checkpoint"><i>◆</i><span><b>Контрольная точка</b><small>Шаблон КТ из каталога</small></span></button>
     <button data-action="addBranch"><i>◇</i><span><b>Условие</b><small>Настроить вариант пути</small></span></button>
     <button class="clean-ai-pick" data-clean-action="ai-elements"><i>✦</i><span><b>Подобрать с AI</b><small>Агент предложит элементы из разрешённых каталогов</small></span></button>
     <div class="clean-structure-actions"><span>Структура процесса</span><button data-action="addStage">＋ Этап</button><button data-action="addBranch">＋ Ветка</button></div>
@@ -107,34 +113,42 @@
   // the canvas instead of making the administrator switch between layers.
   scenarioRail = () => {
     state.goalsOpen = true;
+    const cards = [];
     if (aiState.goals?.length) {
       const scopeNames = [...new Set(aiState.goals.map(goal=>branches.find(branch=>branch.id===goal.branchId)?.name).filter(Boolean))];
-      return `<section class="scenario-rail expanded live-scenario-rail"><div class="rail-label"><b>Сценарии целей</b><small>Цели и промежуточные результаты связаны с действиями процесса</small></div><div class="scenario-cards"><article class="scenario-card live-goals-card" data-open-scenario="goal"><div class="live-scenario-head"><div><span class="tag purple">Сценарий создан · ${aiState.goals.length} ${aiState.goals.length===1?'цель':'цели'}</span><b>${safe4(scopeNames.join(', ') || 'Выбранные ветки')}</b><small>Цели создаёт ${safe4(aiState.creator || 'администратор')}</small></div><button class="btn small">Открыть сценарий</button></div><div class="live-goal-list">${aiState.goals.slice(0,4).map(goal=>`<div class="goal-result"><b>${safe4(goal.title)}</b><span>${safe4(goal.result)}</span><em>до ${goal.day} дня · ${(goal.linked||[]).length} связей</em></div>`).join('')}</div></article><button class="btn small" data-action="addGoalScenario">＋ Сценарий целей</button></div></section>`;
+      cards.push(`<article class="scenario-card compact-scenario-card" data-open-scenario="goal"><span class="tag purple">AI · сценарий целей</span><b>${safe4(scopeNames.join(', ') || 'Выбранные ветки')}</b><small>Цели создаёт ${safe4(aiState.creator || 'администратор')} · ${aiState.goals.length} шаблона добавлено</small><button class="btn small">Настроить сценарий</button></article>`);
     }
-    return previousScenarioRail().replace('<button class="btn small" data-action="toggleGoals">Свернуть</button>', '');
+    state.goalScenarios.forEach((scenario,index)=>{
+      const scopeNames = scenario.branches.map(id=>branches.find(branch=>branch.id===id)?.name).filter(Boolean);
+      cards.push(`<article class="scenario-card compact-scenario-card" data-open-scenario="goal-manual-${index}"><span class="tag purple">Сценарий целей</span><b>${safe4(scopeNames.join(', ') || 'Все ветки')}</b><small>Цели создаёт ${safe4(scenario.creator)} · ${safe4(scenario.timing)}</small><button class="btn small">Изменить</button></article>`);
+    });
+    return `<section class="scenario-rail expanded live-scenario-rail clean-scenario-rail"><div class="rail-label"><b>Сценарии целей</b><small>Сценарий задаёт ветки, автора и срок. Сами цели добавляются через «Добавить».</small></div><div class="scenario-cards">${cards.join('') || '<div class="rail-empty-inline"><b>Сценариев пока нет</b><span>Создайте отдельные сценарии для кассиров, продавцов или сотрудников выкладки.</span></div>'}<button class="btn small" data-action="addGoalScenario">＋ Сценарий целей</button></div></section>`;
   };
 
   scenarioModalV4 = () => {
     if (!state.scenarioModal) return '';
     const goalMode = state.scenarioModal.startsWith('goal');
-    const hasLiveData = goalMode ? aiState.goals?.length : (aiState.sessions || []).some(session=>session.entries?.length);
-    if (!hasLiveData || state.scenarioModal.endsWith('new')) return previousScenarioModalV4();
-    const scopeIds = goalMode ? aiState.goals.map(goal=>goal.branchId) : aiState.sessions.flatMap(session=>session.branches||[]);
-    const scopeNames = [...new Set(scopeIds.map(id=>branches.find(branch=>branch.id===id)?.name).filter(Boolean))];
-    const contents = goalMode
-      ? `<section class="scenario-contents live-scenario-contents"><div class="section-head"><div><b>Цели и промежуточные результаты</b><p class="muted">Сценарий уже создан. Каждая цель связана с действиями процесса.</p></div></div>${aiState.goals.map(goal=>`<article><div><b>${safe4(goal.title)}</b><span>${safe4(goal.result)}</span></div><em>до ${goal.day} дня</em><small>${(goal.linked||[]).length} связей: ${(goal.linked||[]).map(item=>safe4(item.title)).join(', ') || 'связи будут добавлены на канве'}</small></article>`).join('')}</section>`
-      : `<section class="scenario-contents live-scenario-contents"><div class="section-head"><div><b>Сессии контрольных точек</b><p class="muted">Сценарий уже создан и применяется к выбранным веткам.</p></div></div>${aiState.sessions.flatMap(session=>session.entries||[]).map(entry=>`<article><div><b>${entry.day} день · ${safe4(entry.title)}</b><span>${safe4(entry.agenda)}</span></div><em>${safe4(entry.pulse || 'Проверить прогресс')}</em><small>${safe4((entry.participants||[]).join(', ') || 'Сотрудник, руководитель, наставник')}</small></article>`).join('')}</section>`;
-    return `<div class="modal"><section class="dialog scenario-dialog-v4 live-scenario-dialog"><header class="dialog-head"><div><span class="tag ${goalMode?'purple':'amber'}">${goalMode?'Сценарий целей':'Сценарий контрольных точек'}</span><h2>${goalMode?'Цели процесса':'Контрольные точки процесса'}</h2><p>${safe4(scopeNames.join(', ') || 'Все выбранные ветки')}</p></div><button class="btn icon-only" data-action="closeScenario">×</button></header><div class="dialog-body"><section class="scenario-scope"><div><b>Применяется к веткам</b><p class="muted">${safe4(scopeNames.join(', ') || 'Все выбранные ветки')}</p></div><span class="tag green">✓ Сценарий создан</span></section>${contents}</div><footer class="dialog-foot"><button class="btn" data-action="closeScenario">Закрыть</button><button class="btn primary" data-action="saveScenario">Сохранить изменения</button></footer></section></div>`;
+    const match = state.scenarioModal.match(/manual-(\d+)$/);
+    const collection = goalMode ? state.goalScenarios : state.ktScenarios;
+    const existing = match ? collection[Number(match[1])] : null;
+    const aiBranches = goalMode ? [...new Set((aiState.goals||[]).map(goal=>goal.branchId))] : [...new Set((aiState.sessions||[]).flatMap(session=>session.branches||[]))];
+    const selected = existing?.branches?.length ? existing.branches : aiBranches.length ? aiBranches : branches.slice(0,2).map(branch=>branch.id);
+    return `<div class="modal"><section class="dialog scenario-dialog-v4 clean-scenario-dialog"><header class="dialog-head"><div><span class="tag ${goalMode?'purple':'amber'}">${goalMode?'Сценарий целей':'Сценарий контрольных точек'}</span><h2>${existing?'Изменить сценарий':'Новый сценарий'}</h2><p>Настройте правило создания для выбранных веток процесса.</p></div><button class="btn icon-only" data-action="closeScenario">×</button></header><div class="dialog-body"><section class="scenario-scope"><div><b>Для каких веток работает сценарий</b><p class="muted">Можно создать отдельные сценарии для кассиров, продавцов, выкладки и других вариантов пути.</p></div><div class="branch-checks">${branches.map(branch=>`<label><input type="checkbox" data-scenario-branch value="${branch.id}" ${selected.includes(branch.id)?'checked':''}> ${safe4(branch.name)}</label>`).join('')}</div></section>${goalMode?`<div class="form-grid"><div class="field"><label>Кто создаёт цели</label><select data-scenario-creator><option ${existing?.creator==='Администратор'?'selected':''}>Администратор</option><option ${existing?.creator==='Руководитель'?'selected':''}>Руководитель</option><option ${existing?.creator==='Сотрудник'?'selected':''}>Сотрудник</option></select></div><div class="field"><label>Когда создать цели</label><select data-scenario-timing><option>При назначении плана</option><option ${existing?.timing==='В первый день'?'selected':''}>В первый день</option><option ${existing?.timing==='До 5 дня плана'?'selected':''}>До 5 дня плана</option></select></div></div>`:`<div class="form-grid"><div class="field"><label>Ответственный за КТ</label><select data-scenario-creator><option ${existing?.creator==='Руководитель'?'selected':''}>Руководитель</option><option ${existing?.creator==='Наставник'?'selected':''}>Наставник</option><option ${existing?.creator==='Бизнес-роль'?'selected':''}>Бизнес-роль</option></select></div><div class="field"><label>Когда запускать</label><select data-scenario-timing><option>По срокам шаблонов КТ</option><option ${existing?.timing==='После завершения этапа'?'selected':''}>После завершения этапа</option><option ${existing?.timing==='По результату элемента'?'selected':''}>По результату элемента</option></select></div></div>`}<section class="scenario-catalog-note"><b>${goalMode?'Цели':'Шаблоны контрольных точек'} добавляются отдельно</b><span>Используйте кнопку «＋ Добавить» на канве и выберите ${goalMode?'«Цель»':'«Контрольная точка»'} из каталога. Так один сценарий можно наполнить разными шаблонами.</span></section></div><footer class="dialog-foot"><button class="btn" data-action="closeScenario">Отмена</button><button class="btn primary" data-action="saveScenario" data-scenario-kind="${goalMode?'goal':'kt'}" data-scenario-index="${match?match[1]:''}">${existing?'Сохранить':'Создать сценарий'}</button></footer></section></div>`;
   };
   checkpointRail = () => {
     state.ktOpen = true;
     const entries = (aiState.sessions || []).flatMap(session=>session.entries||[]);
+    const cards = [];
     if (entries.length) {
       const scopeIds = (aiState.sessions || []).flatMap(session=>session.branches||[]);
       const scopeNames = [...new Set(scopeIds.map(id=>branches.find(branch=>branch.id===id)?.name).filter(Boolean))];
-      return `<section class="checkpoint-rail expanded live-scenario-rail"><div class="rail-label"><b style="color:var(--amber)">Сценарии контрольных точек</b><small>Сроки, результаты и реакции на отклонения</small></div><div class="checkpoint-cards"><article class="checkpoint-card scenario-group" data-open-scenario="kt"><span class="tag amber">${entries.length} ${entries.length===1?'сессия':'сессии КТ'}</span><b>${scopeNames.join(', ') || branches.map(branch=>branch.name).join(', ')}</b><div class="session-row">${entries.slice(0,4).map(entry=>`<span><b>${entry.day} день</b> · ${entry.title}</span>`).join('')}</div><small>${entries[0]?.agenda || 'Проверка результата и необходимой поддержки'}</small><button class="btn small">Открыть сценарий</button></article><button class="btn small" data-action="addKtScenario">＋ Сценарий КТ</button></div></section>`;
+      cards.push(`<article class="checkpoint-card compact-scenario-card" data-open-scenario="kt"><span class="tag amber">AI · сценарий КТ</span><b>${safe4(scopeNames.join(', ') || 'Выбранные ветки')}</b><small>${entries.length} шаблона добавлено · по срокам элементов</small><button class="btn small">Настроить сценарий</button></article>`);
     }
-    return previousCheckpointRail().replace('<button class="btn small" data-action="toggleKt">Свернуть</button>', '');
+    state.ktScenarios.forEach((scenario,index)=>{
+      const scopeNames = scenario.branches.map(id=>branches.find(branch=>branch.id===id)?.name).filter(Boolean);
+      cards.push(`<article class="checkpoint-card compact-scenario-card" data-open-scenario="kt-manual-${index}"><span class="tag amber">Сценарий КТ</span><b>${safe4(scopeNames.join(', ') || 'Все ветки')}</b><small>${safe4(scenario.creator)} · ${safe4(scenario.timing)}</small><button class="btn small">Изменить</button></article>`);
+    });
+    return `<section class="checkpoint-rail expanded live-scenario-rail clean-scenario-rail"><div class="rail-label"><b style="color:var(--amber)">Сценарии контрольных точек</b><small>Сценарий задаёт ветки, ответственного и запуск. Шаблоны КТ добавляются через «Добавить».</small></div><div class="checkpoint-cards">${cards.join('') || '<div class="rail-empty-inline"><b>Сценариев пока нет</b><span>Создайте сценарий, затем добавьте нужные шаблоны контрольных точек.</span></div>'}<button class="btn small" data-action="addKtScenario">＋ Сценарий КТ</button></div></section>`;
   };
 
   canvasPage = () => state.view === 'canvas' ? cleanProcessPage() : previousCanvasPage();
@@ -142,9 +156,9 @@
   const unifiedHeader = () => {
     const itemCount = Object.values(state.items).reduce((sum,list) => sum + list.length, 0);
     const workflow = currentWorkflow();
-    const title = state.workflow === 'generated'
-      ? (state.processTitle || 'Новый сотрудник логистического центра')
-      : state.newWorkflow ? 'Новый процесс' : workflow.name.replace(/^План\s+/i, '');
+    const title = state.newWorkflow
+      ? (state.processTitle || 'Новый процесс')
+      : workflow.name.replace(/^План\s+/i, '');
     const stats = stages.length
       ? `${stages.length} этапов · ${branches.length} ветки · ${itemCount} действий`
       : 'Черновик · структура ещё не собрана';
@@ -165,7 +179,7 @@
       goalScenario.dataset.focus = 'goals';
       goalScenario.onclick = event => {
         if (event.target.closest('button')) {
-          state.scenarioModal = 'goal';
+          state.scenarioModal = goalScenario.dataset.openScenario || 'goal';
         } else {
           state.focus = state.focus === 'goals' ? null : 'goals';
         }
@@ -176,7 +190,7 @@
       checkpointScenario.dataset.focus = 'kt-standard';
       checkpointScenario.onclick = event => {
         if (event.target.closest('button')) {
-          state.scenarioModal = 'kt';
+          state.scenarioModal = checkpointScenario.dataset.openScenario || 'kt';
         } else {
           state.focus = state.focus === 'kt-standard' ? null : 'kt-standard';
         }
@@ -249,6 +263,26 @@
   if (!window.__workflowIterationFourBound) {
     window.__workflowIterationFourBound = true;
     document.addEventListener('click', event => {
+      const save = event.target.closest('[data-action="saveScenario"][data-scenario-kind]');
+      if (!save) return;
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      const branchIds = [...document.querySelectorAll('[data-scenario-branch]:checked')].map(input=>input.value);
+      if (!branchIds.length) { toast('Выберите хотя бы одну ветку'); return; }
+      const scenario = {
+        branches:branchIds,
+        creator:document.querySelector('[data-scenario-creator]')?.value || (save.dataset.scenarioKind==='goal'?'Администратор':'Руководитель'),
+        timing:document.querySelector('[data-scenario-timing]')?.value || 'При назначении плана'
+      };
+      const collection = save.dataset.scenarioKind === 'goal' ? state.goalScenarios : state.ktScenarios;
+      const index = save.dataset.scenarioIndex === '' ? -1 : Number(save.dataset.scenarioIndex);
+      if (index >= 0) collection[index] = scenario; else collection.push(scenario);
+      if (save.dataset.scenarioKind === 'goal') state.newGoalScenario = true; else state.newKtScenario = true;
+      state.scenarioModal = null;
+      render();
+      toast('Сценарий сохранён. Добавьте шаблоны через кнопку «Добавить»');
+    }, true);
+    document.addEventListener('click', event => {
       const node = event.target.closest('[data-clean-action]');
       const elementNode = event.target.closest('[data-clean-element-type]');
       if (elementNode) {
@@ -280,6 +314,13 @@
     document.addEventListener('click', event => {
       if (!event.target.closest('.clean-header-tabs button')) return;
       setTimeout(() => window.scrollTo({top: 0, left: 0}), 0);
+    }, true);
+    document.addEventListener('input', event => {
+      if (!event.target.matches('.palette-search input')) return;
+      const query = event.target.value.trim().toLowerCase().replace(/ё/g,'е');
+      document.querySelectorAll('.clean-catalog-list .palette-card').forEach(card=>{
+        card.hidden = query && !card.innerText.toLowerCase().replace(/ё/g,'е').includes(query);
+      });
     }, true);
   }
 
