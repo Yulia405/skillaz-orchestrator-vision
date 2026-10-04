@@ -128,7 +128,7 @@ async function aiGenerate() {
       history:[], catalog:window.SkillazLiveAI.context(query)
     });
     const proposals = Array.isArray(result.proposals) ? result.proposals : [];
-    if (proposals.length) {
+    if (proposals.length && !dialog?.querySelector('.ai-applied-list,.live-scenario-contents')) {
       aiState.proposals = proposals.map((proposal,index) => {
         const branchId = proposal.branchId || scope[index % scope.length];
         const stageId = proposal.stageId || selectedStages[index % Math.max(1,selectedStages.length)];
@@ -238,6 +238,7 @@ function aiApply() {
     state.newGoalScenario = true;
     state.goalsOpen = true;
     state.layer = 'goals';
+    state.scenarioModal = 'goal';
     state.generatedAiProcess ||= {};
     state.generatedAiProcess.goals = [...aiState.goals];
   } else {
@@ -245,6 +246,7 @@ function aiApply() {
     state.newKtScenario = true;
     state.ktOpen = true;
     state.layer = 'checkpoints';
+    state.scenarioModal = 'kt';
     state.generatedAiProcess ||= {};
     state.generatedAiProcess.checkpoints = aiState.sessions.flatMap(session=>session.entries||[]);
   }

@@ -105,8 +105,22 @@
 
   const scopePicker = () => {
     if (!state.scopePicker) return '';
+    if (state.scopePicker === 'org') {
+      return `<div class="local-overlay scope-picker-overlay" role="dialog" aria-modal="true" aria-label="Выбор оргструктуры"><section class="scope-picker-card org-tree-card"><header><div><span class="tag blue">Базовый охват</span><h2>Оргструктура</h2><p>Раскройте подразделения и выберите нужный узел целиком или отдельные дочерние подразделения.</p></div><button class="btn icon-only" data-local-action="close-scope-picker">×</button></header><div class="org-tree" role="tree">
+        <div class="org-tree-root"><label><input type="checkbox"><span class="org-icon">▦</span><b>Подразделения</b><small>67</small></label></div>
+        <details open><summary><span class="tree-chevron">›</span><label><input type="checkbox" checked><b>Розничная сеть</b><small>24</small></label><em>ID D001</em></summary><div class="tree-children">
+          <label><input type="checkbox" checked><span><b>Москва и Московская область</b><small>ID D011 · 86 магазинов</small></span></label>
+          <label><input type="checkbox"><span><b>Санкт-Петербург и Северо-Запад</b><small>ID D012 · 42 магазина</small></span></label>
+          <label><input type="checkbox"><span><b>Поволжье</b><small>ID D013 · 37 магазинов</small></span></label>
+        </div></details>
+        <details><summary><span class="tree-chevron">›</span><label><input type="checkbox"><b>Логистическая сеть</b><small>18</small></label><em>ID D002</em></summary><div class="tree-children">
+          <label><input type="checkbox"><span><b>Складская логистика</b><small>ID D021 · дочерние подразделения</small></span></label>
+          <label><input type="checkbox"><span><b>Доставка</b><small>ID D022 · региональные центры</small></span></label>
+        </div></details>
+        <details><summary><span class="tree-chevron">›</span><label><input type="checkbox"><b>Клиентские офисы</b><small>16</small></label><em>ID D003</em></summary><div class="tree-children"><label><input type="checkbox"><span><b>Региональные офисы</b><small>ID D031 · все дочерние узлы</small></span></label></div></details>
+      </div><footer><button class="btn" data-local-action="close-scope-picker">Отмена</button><button class="btn primary" data-local-action="apply-scope-picker">Применить выбор</button></footer></section></div>`;
+    }
     const data = {
-      org: ['Оргструктура', ['Логистическая сеть', 'Складская логистика и дочерние', 'Клиентские офисы и дочерние']],
       role: ['Должности', ['Кладовщик', 'Специалист доставки', 'Менеджер клиентского офиса', 'Группа должностей «Массовые роли»']],
       group: ['Группы сотрудников', ['Новые сотрудники', 'Кадровый резерв руководителей', 'Сотрудники на испытательном сроке']],
       location: ['Территория', ['Москва', 'Казань', 'Екатеринбург', 'Все площадки выбранных подразделений']]
@@ -165,7 +179,7 @@
       }
       if (action === 'apply-scope-picker') {
         event.preventDefault();
-        const values = {org:'Логистическая сеть и дочерние подразделения',role:'Массовые роли: кладовщик, специалист доставки, менеджер клиентского офиса',group:'Группы: новые сотрудники и кадровый резерв руководителей',location:'Территория: Москва и Казань'};
+        const values = {org:'Розничная сеть · Москва и Московская область · дочерние подразделения',role:'Массовые роли: кладовщик, специалист доставки, менеджер клиентского офиса',group:'Группы: новые сотрудники и кадровый резерв руководителей',location:'Территория: Москва и Казань'};
         state.manualLaunch.audience = values[state.scopePicker];
         if (state.launchConfigured) state.assistantAnswers.audience = state.manualLaunch.audience;
         state.scopePicker = null;

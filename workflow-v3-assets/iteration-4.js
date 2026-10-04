@@ -16,6 +16,8 @@
   const previousItemCard = itemCard;
   const previousScenarioRail = scenarioRail;
   const previousCheckpointRail = checkpointRail;
+  const previousScenarioModalV4 = scenarioModalV4;
+  const safe4 = value => String(value ?? '').replace(/[&<>"']/g, symbol => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[symbol]));
 
   // A branch is a variant of the employee path. Participant work stays inside
   // the stages as ordinary tasks, so the manager demo must not expose a
@@ -107,9 +109,22 @@
     state.goalsOpen = true;
     if (aiState.goals?.length) {
       const scopeNames = [...new Set(aiState.goals.map(goal=>branches.find(branch=>branch.id===goal.branchId)?.name).filter(Boolean))];
-      return `<section class="scenario-rail expanded live-scenario-rail"><div class="rail-label"><b>Сценарии целей</b><small>Цели и промежуточные результаты связаны с действиями процесса</small></div><div class="scenario-cards"><article class="scenario-card" data-open-scenario="goal"><span class="tag purple">${aiState.goals.length} ${aiState.goals.length===1?'цель':'цели'}</span><b>${scopeNames.join(', ') || 'Выбранные ветки'}</b><small>Цели создаёт ${aiState.creator || 'администратор'}</small>${aiState.goals.slice(0,4).map(goal=>`<div class="goal-result"><b>${goal.title}</b><span>${goal.result} · до ${goal.day} дня · ${(goal.linked||[]).length} связей</span></div>`).join('')}<button class="btn small">Открыть сценарий</button></article><button class="btn small" data-action="addGoalScenario">＋ Сценарий целей</button></div></section>`;
+      return `<section class="scenario-rail expanded live-scenario-rail"><div class="rail-label"><b>Сценарии целей</b><small>Цели и промежуточные результаты связаны с действиями процесса</small></div><div class="scenario-cards"><article class="scenario-card live-goals-card" data-open-scenario="goal"><div class="live-scenario-head"><div><span class="tag purple">Сценарий создан · ${aiState.goals.length} ${aiState.goals.length===1?'цель':'цели'}</span><b>${safe4(scopeNames.join(', ') || 'Выбранные ветки')}</b><small>Цели создаёт ${safe4(aiState.creator || 'администратор')}</small></div><button class="btn small">Открыть сценарий</button></div><div class="live-goal-list">${aiState.goals.slice(0,4).map(goal=>`<div class="goal-result"><b>${safe4(goal.title)}</b><span>${safe4(goal.result)}</span><em>до ${goal.day} дня · ${(goal.linked||[]).length} связей</em></div>`).join('')}</div></article><button class="btn small" data-action="addGoalScenario">＋ Сценарий целей</button></div></section>`;
     }
     return previousScenarioRail().replace('<button class="btn small" data-action="toggleGoals">Свернуть</button>', '');
+  };
+
+  scenarioModalV4 = () => {
+    if (!state.scenarioModal) return '';
+    const goalMode = state.scenarioModal.startsWith('goal');
+    const hasLiveData = goalMode ? aiState.goals?.length : (aiState.sessions || []).some(session=>session.entries?.length);
+    if (!hasLiveData || state.scenarioModal.endsWith('new')) return previousScenarioModalV4();
+    const scopeIds = goalMode ? aiState.goals.map(goal=>goal.branchId) : aiState.sessions.flatMap(session=>session.branches||[]);
+    const scopeNames = [...new Set(scopeIds.map(id=>branches.find(branch=>branch.id===id)?.name).filter(Boolean))];
+    const contents = goalMode
+      ? `<section class="scenario-contents live-scenario-contents"><div class="section-head"><div><b>Цели и промежуточные результаты</b><p class="muted">Сценарий уже создан. Каждая цель связана с действиями процесса.</p></div></div>${aiState.goals.map(goal=>`<article><div><b>${safe4(goal.title)}</b><span>${safe4(goal.result)}</span></div><em>до ${goal.day} дня</em><small>${(goal.linked||[]).length} связей: ${(goal.linked||[]).map(item=>safe4(item.title)).join(', ') || 'связи будут добавлены на канве'}</small></article>`).join('')}</section>`
+      : `<section class="scenario-contents live-scenario-contents"><div class="section-head"><div><b>Сессии контрольных точек</b><p class="muted">Сценарий уже создан и применяется к выбранным веткам.</p></div></div>${aiState.sessions.flatMap(session=>session.entries||[]).map(entry=>`<article><div><b>${entry.day} день · ${safe4(entry.title)}</b><span>${safe4(entry.agenda)}</span></div><em>${safe4(entry.pulse || 'Проверить прогресс')}</em><small>${safe4((entry.participants||[]).join(', ') || 'Сотрудник, руководитель, наставник')}</small></article>`).join('')}</section>`;
+    return `<div class="modal"><section class="dialog scenario-dialog-v4 live-scenario-dialog"><header class="dialog-head"><div><span class="tag ${goalMode?'purple':'amber'}">${goalMode?'Сценарий целей':'Сценарий контрольных точек'}</span><h2>${goalMode?'Цели процесса':'Контрольные точки процесса'}</h2><p>${safe4(scopeNames.join(', ') || 'Все выбранные ветки')}</p></div><button class="btn icon-only" data-action="closeScenario">×</button></header><div class="dialog-body"><section class="scenario-scope"><div><b>Применяется к веткам</b><p class="muted">${safe4(scopeNames.join(', ') || 'Все выбранные ветки')}</p></div><span class="tag green">✓ Сценарий создан</span></section>${contents}</div><footer class="dialog-foot"><button class="btn" data-action="closeScenario">Закрыть</button><button class="btn primary" data-action="saveScenario">Сохранить изменения</button></footer></section></div>`;
   };
   checkpointRail = () => {
     state.ktOpen = true;
@@ -143,6 +158,7 @@
 
   bind = function () {
     previousBind();
+    if (document.querySelector('.live-scenario-contents')) document.querySelectorAll('.ai-applied-list').forEach(node => node.remove());
     const goalScenario = document.querySelector('.scenario-rail .scenario-card');
     const checkpointScenario = document.querySelector('.checkpoint-rail .checkpoint-card');
     if (goalScenario) {

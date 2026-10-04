@@ -206,7 +206,22 @@
         id:`generated-kt-${index}`,title:checkpoint.title,day:Number(checkpoint.day)||[14,30,60][index]||30,
         agenda:checkpoint.result||'Проверить результат этапа и договориться о следующих шагах.',pulse:checkpoint.onFail||'Какая поддержка нужна сотруднику?',participants:checkpoint.participants||[]
       }))}];
-    } else loadWorkflow('courier');
+    } else {
+      loadWorkflow('courier');
+      const fallbackItems = Object.values(state.items).flat().filter(item=>['task','course','assessment'].includes(item.type));
+      const fallbackLinks = fallbackItems.slice(0,3).map(item=>({id:item.id,title:item.title}));
+      aiState.goals = [{
+        id:'fallback-goal-1',branchId:branches[0]?.id,title:'Освоить ключевые задачи роли',
+        result:state.assistantAnswers?.result||'Самостоятельно выполнять работу по стандартам роли',day:30,
+        source:'AI · каталог целей',candidates:fallbackItems,linked:fallbackLinks
+      }];
+      aiState.sessions = [{branches:branches.map(branch=>branch.id),entries:[
+        {id:'fallback-kt-1',title:'Проверка старта',day:7,agenda:'Проверить доступы и выполнение обязательных действий',pulse:'Какая поддержка нужна на старте?',participants:['Руководитель','Наставник']},
+        {id:'fallback-kt-2',title:'Проверка практики',day:30,agenda:'Проверить выполнение ключевых действий под наблюдением',pulse:'Что мешает работать самостоятельно?',participants:['Наставник','Эксперт']},
+        {id:'fallback-kt-3',title:'Финальный допуск',day:60,agenda:state.assistantAnswers?.result||'Подтвердить готовность к самостоятельной работе',pulse:'Готов ли сотрудник к самостоятельной работе?',participants:['Руководитель','Проверяющий']}
+      ]}];
+      state.generatedAiProcess = {title:state.processTitle||'Черновик процесса',goals:aiState.goals,checkpoints:aiState.sessions[0].entries};
+    }
     state.newWorkflow = true;
     state.workflow = 'generated';
     state.generatedProcess = true;
