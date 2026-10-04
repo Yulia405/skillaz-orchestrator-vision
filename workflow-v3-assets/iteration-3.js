@@ -109,16 +109,25 @@
 
   const canvasType = type => ({test:'assessment',checkpoint:'assessment',meeting:'task',action:'task',goal:'task'}[type] || type || 'task');
   const needsCommonBranch = () => /общая часть|вариант/i.test(String(state.assistantAnswers?.pathType || ''));
+  const inferredVariantNames = () => {
+    const selected=(window.SkillazReferenceData?.positions||[]).filter(position=>state.scopeSelections?.role?.includes(position.id)).map(position=>position.title);
+    if(selected.length>1)return selected.slice(0,4);
+    const text=[state.assistantAnswers?.audience,state.assistantAnswers?.audienceIntent,state.processTitle,...(state.assistantLiveHistory||[]).filter(item=>item.role==='user').map(item=>item.text)].filter(Boolean).join(' ').toLowerCase();
+    if(/маркет|бренд|копирайт|ивент/.test(text))return ['Маркетолог','Копирайтер','Ивент-менеджер'];
+    if(/кассир|продав|розниц|магазин/.test(text))return ['Кассир','Продавец-консультант','Сотрудник выкладки'];
+    if(/курьер|достав|логист|склад/.test(text))return ['Курьер','Водитель','Кладовщик'];
+    if(/производ|цех|станок|оператор/.test(text))return ['Оператор линии','Контролёр ОТК','Мастер смены'];
+    return selected.length?selected:[];
+  };
   const ensureCommonBranch = () => {
-    if (!needsCommonBranch() || !branches.length || branches.some(branch=>branch.id==='base')) return;
-    const commonIndex = branches.findIndex((branch,index)=>index===0 && /вся выбранная|общая часть|общий контур|^true$/i.test(`${branch.name} ${branch.desc||''} ${(branch.conditions||[]).join(' ')}`));
-    if (commonIndex >= 0) {
+    if (!needsCommonBranch() || !branches.length) return;
+    let commonIndex = branches.findIndex(branch=>branch.id==='base');
+    if(commonIndex<0) commonIndex = branches.findIndex((branch,index)=>index===0 && /вся выбранная|общая часть|общий контур|^true$/i.test(`${branch.name} ${branch.desc||''} ${(branch.conditions||[]).join(' ')}`));
+    if (commonIndex >= 0 && branches[commonIndex].id!=='base') {
       const oldId = branches[commonIndex].id;
       branches[commonIndex] = {...branches[commonIndex],id:'base',name:'Общий контур',desc:'Вся выбранная аудитория',conditions:['Вся выбранная аудитория'],meta:['Вся аудитория','AI']};
       stages.forEach(stage=>{ const oldKey=`${oldId}-${stage.id}`,newKey=`base-${stage.id}`; if(state.items?.[oldKey]){state.items[newKey]=state.items[oldKey];delete state.items[oldKey];} });
-      return;
-    }
-    branches.unshift({id:'base',name:'Общий контур',meta:['Вся аудитория','AI'],desc:'Вся выбранная аудитория',conditions:['Вся выбранная аудитория']});
+    } else if(commonIndex<0) branches.unshift({id:'base',name:'Общий контур',meta:['Вся аудитория','AI'],desc:'Вся выбранная аудитория',conditions:['Вся выбранная аудитория']});
     state.items ||= {};
     stages.forEach(stage=>{
       const lists=branches.filter(branch=>branch.id!=='base').map(branch=>state.items[`${branch.id}-${stage.id}`]||[]);
@@ -127,6 +136,7 @@
       state.items[`base-${stage.id}`]=shared.map(title=>({...lists[0].find(item=>item.title===title),id:`base-${stage.id}-${Math.random().toString(36).slice(2,8)}`}));
       if(shared.length) branches.filter(branch=>branch.id!=='base').forEach(branch=>{const key=`${branch.id}-${stage.id}`;state.items[key]=(state.items[key]||[]).filter(item=>!shared.includes(item.title));});
     });
+    if(branches.length===1) inferredVariantNames().forEach((name,index)=>branches.push({id:`role-variant-${index+1}`,name,meta:[`Должность: ${name}`,'AI'],desc:`Должность: ${name}`,conditions:[`Должность: ${name}`]}));
   };
   const enrichGeneratedItems = () => {
     const catalog = window.SkillazProductionCatalog;
@@ -296,7 +306,8 @@
         {id:'local-stage-4',name:'Проверка знаний и навыков',days:'до 30 дня',count:0},
         {id:'local-stage-5',name:'Самостоятельная работа',days:'до 60 дня',count:0}
       );
-      branches.splice(0,branches.length,{id:'base',name:'Общий контур',meta:['Вся аудитория','AI'],desc:'Вся выбранная аудитория',conditions:['Вся выбранная аудитория']},...audienceNames.slice(0,4).map((name,index)=>({id:`local-role-${index+1}`,name:`Путь: ${name}`,meta:[`Должность: ${name}`,'AI'],desc:`Должность: ${name}`,conditions:[`Должность: ${name}`]})));
+      const fallbackVariants = needsCommonBranch() ? (inferredVariantNames().length ? inferredVariantNames() : audienceNames).slice(0,4) : [];
+      branches.splice(0,branches.length,{id:'base',name:'Общий контур',meta:['Вся аудитория','AI'],desc:'Вся выбранная аудитория',conditions:['Вся выбранная аудитория']},...fallbackVariants.map((name,index)=>({id:`local-role-${index+1}`,name:`Путь: ${name}`,meta:[`Должность: ${name}`,'AI'],desc:`Должность: ${name}`,conditions:[`Должность: ${name}`]})));
       state.items = {};
       extras = {};
       state.processTitle = state.assistantAnswers?.scenario && state.assistantAnswers.scenario !== 'Новый сотрудник' ? state.assistantAnswers.scenario : `Адаптация: ${audienceNames.join(', ')}`;
@@ -315,6 +326,11 @@
       ]}];
       state.generatedAiProcess = {title:state.processTitle||'Черновик процесса',context:contextText,goals:aiState.goals,checkpoints:aiState.sessions[0].entries};
     }
+    state.generatedGoalTemplates = aiState.goals.map(goal=>({...goal,type:'goal',links:goal.linked||[]}));
+    state.generatedKtTemplates = aiState.sessions.flatMap(session=>session.entries||[]).map(entry=>({...entry,type:'checkpoint'}));
+    state.goalScenarios ||= []; state.ktScenarios ||= [];
+    if(!state.goalScenarios.length)state.goalScenarios.push({branches:branches.map(branch=>branch.id),creator:'Администратор',timing:'При назначении плана'});
+    if(!state.ktScenarios.length)state.ktScenarios.push({branches:branches.map(branch=>branch.id),creator:'Руководитель',timing:'По срокам шаблонов КТ'});
     state.newWorkflow = true;
     state.workflow = 'generated';
     state.generatedProcess = true;

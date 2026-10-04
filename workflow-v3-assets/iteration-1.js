@@ -336,9 +336,8 @@
       if (result.question) state.assistantAskedQuestions.push(result.question);
       state.assistantLivePrompt = result.question ? [result.question,result.hint || 'Ответьте своими словами — я настрою системные параметры.'] : null;
       state.assistantLiveSuggestions = Array.isArray(result.suggestions) ? result.suggestions.slice(0,4) : [];
-      const turnCount = state.assistantLiveHistory.filter(message=>message.role==='user').length;
-      if (result.ready || turnCount >= 4) completeLaunchDefaults();
-      state.assistantStep = result.ready || turnCount >= 4 ? 7 : Math.min(6,state.assistantStep + 1);
+      if (result.ready) completeLaunchDefaults();
+      state.assistantStep = result.ready ? 7 : Math.min(6,state.assistantStep + 1);
     } catch (error) {
       state.assistantError = 'Живой AI временно недоступен. Ответ сохранён, можно продолжить в демо-режиме.';
       applyLocalAssistantAnswer(value);

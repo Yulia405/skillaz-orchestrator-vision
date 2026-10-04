@@ -2,7 +2,7 @@
   const ENDPOINT = 'https://skillaz-workflow-ai.skillaz-sales-bot.workers.dev/assistant';
   const timeout = 45000;
 
-  async function ask(task, payload) {
+  async function request(task, payload) {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), timeout);
     try {
@@ -16,6 +16,15 @@
       if (!response.ok) throw new Error(result.error || 'AI сейчас недоступен');
       return result;
     } finally { clearTimeout(timer); }
+  }
+
+  async function ask(task, payload) {
+    try { return await request(task,payload); }
+    catch (firstError) {
+      await new Promise(resolve=>setTimeout(resolve,700));
+      try { return await request(task,payload); }
+      catch (secondError) { throw new Error(secondError.message || firstError.message || 'AI сейчас недоступен'); }
+    }
   }
 
   const context = query => {

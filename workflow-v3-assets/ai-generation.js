@@ -85,7 +85,7 @@ const aiCatalog = {
 
 const escapeAi = value => String(value ?? '').replace(/[&<>"']/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' })[c]);
 const branchProfile = branch => {
-  const text = [branch.name, branch.desc, ...(branch.conditions || []), ...(branch.meta || [])].join(' ').toLowerCase();
+  const text = [branch?.name, branch?.desc, ...(branch?.conditions || []), ...(branch?.meta || []),state.assistantAnswers?.audience,state.assistantAnswers?.audienceIntent,state.assistantAnswers?.result,state.processTitle,...(state.assistantLiveHistory||[]).filter(item=>item.role==='user').map(item=>item.text)].filter(Boolean).join(' ').toLowerCase();
   if (/курьер|достав|водител|маршрут/.test(text)) return 'delivery';
   if (/склад|кладов|сортиров|консолидац/.test(text)) return 'warehouse';
   if (/кассир|розниц|пвз|клиентск|торгов/.test(text)) return 'retail';

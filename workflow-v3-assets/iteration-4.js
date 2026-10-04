@@ -57,13 +57,16 @@
   const elementRows = () => {
     const db = window.SkillazDemoDB?.catalogs || {};
     const production = window.SkillazProductionCatalog?.elements || [];
+    const scenarioBranchIds = state.activeTemplateScenario ? (scenarioRecords(state.activeTemplateScenario.kind).find(item=>item.key===state.activeTemplateScenario.key)?.scenario?.branches||[]) : [];
+    const catalogQuery = [state.processTitle,state.assistantAnswers?.audience,state.assistantAnswers?.result,...scenarioBranchIds.map(id=>branches.find(branch=>branch.id===id)?.name)].filter(Boolean).join(' ');
+    const contextualProduction = ['goal','checkpoint'].includes(state.cleanCatalogType) && window.SkillazProductionCatalog?.relevantElements ? window.SkillazProductionCatalog.relevantElements(catalogQuery,production.length) : production;
     const order = state.cleanCatalogType ? [state.cleanCatalogType] : ['course','article','file','task','test','survey','action','goal','checkpoint'];
     const source = {course:'LMS',article:'База знаний',file:'Файлы клиента',task:'Шаблоны задач',test:'Оценка знаний',survey:'Опросы',action:'Skillaz',goal:'Каталог целей',checkpoint:'Каталог КТ'};
     const usage = {course:'Назначается сотруднику',article:'Открывается в плане',file:'Доступен для скачивания',task:'Создаёт задачу исполнителю',test:'Сохраняет результат',survey:'Собирает обратную связь',action:'Выполняется автоматически',goal:'Создаётся по сценарию целей',checkpoint:'Запускается по сценарию КТ'};
     return order.flatMap(type => {
       const generated = type === 'goal' ? state.generatedGoalTemplates : type === 'checkpoint' ? state.generatedKtTemplates : [];
       const generatedRows = generated.map(row=>({id:row.id,type,title:row.title,meta:row.result||row.agenda||'Создано AI по контексту должности',source:'AI · черновик',usage:usage[type],payload:row}));
-      const liveRows = production.filter(row => row.type === type).slice(0,24).map(row => ({id:row.id,type,title:row.title,meta:row.description,source:row.source,usage:usage[type],payload:row}));
+      const liveRows = contextualProduction.filter(row => row.type === type).slice(0,24).map(row => ({id:row.id,type,title:row.title,meta:row.description,source:row.source,usage:usage[type],payload:row}));
       const directoryRows = liveRows.length ? liveRows : (db[type] || []).slice(0,12).map(row => ({id:row[0],type,title:row[1],meta:row[2],source:source[type],usage:usage[type]}));
       return [...generatedRows,...directoryRows.filter(row=>!generatedRows.some(item=>item.id===row.id))];
     });
@@ -144,10 +147,6 @@
   scenarioRail = () => {
     state.goalsOpen = true;
     const cards = [];
-    if (aiState.goals?.length) {
-      const scopeNames = [...new Set(aiState.goals.map(goal=>branches.find(branch=>branch.id===goal.branchId)?.name).filter(Boolean))];
-      cards.push(`<article class="scenario-card compact-scenario-card scenario-with-templates ${state.activeTemplateScenario?.key==='goal-ai'?'active':''}" data-template-scenario-kind="goal" data-template-scenario-key="goal-ai"><span class="tag purple">AI · сценарий целей</span><b>${safe4(scopeNames.join(', ') || 'Выбранные ветки')}</b><small>Цели создаёт ${safe4(aiState.creator || 'администратор')}</small><button class="btn small" data-edit-scenario="goal">Настроить сценарий</button>${scenarioDropZone('goal','goal-ai')}</article>`);
-    }
     state.goalScenarios.forEach((scenario,index)=>{
       const scopeNames = scenario.branches.map(id=>branches.find(branch=>branch.id===id)?.name).filter(Boolean);
       const key = scenarioKey('goal',index);
@@ -168,13 +167,7 @@
   };
   checkpointRail = () => {
     state.ktOpen = true;
-    const entries = (aiState.sessions || []).flatMap(session=>session.entries||[]);
     const cards = [];
-    if (entries.length) {
-      const scopeIds = (aiState.sessions || []).flatMap(session=>session.branches||[]);
-      const scopeNames = [...new Set(scopeIds.map(id=>branches.find(branch=>branch.id===id)?.name).filter(Boolean))];
-      cards.push(`<article class="checkpoint-card compact-scenario-card scenario-with-templates ${state.activeTemplateScenario?.key==='kt-ai'?'active':''}" data-template-scenario-kind="kt" data-template-scenario-key="kt-ai"><span class="tag amber">AI · сценарий КТ</span><b>${safe4(scopeNames.join(', ') || 'Выбранные ветки')}</b><small>По срокам элементов</small><button class="btn small" data-edit-scenario="kt">Настроить сценарий</button>${scenarioDropZone('kt','kt-ai')}</article>`);
-    }
     state.ktScenarios.forEach((scenario,index)=>{
       const scopeNames = scenario.branches.map(id=>branches.find(branch=>branch.id===id)?.name).filter(Boolean);
       const key = scenarioKey('kt',index);
