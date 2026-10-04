@@ -17,13 +17,28 @@
   const previousParticipantsPage = participantsPageV2;
   const previousCanvasPage = canvasPage;
 
-  const roleDirectory = [
+  const baseRoleDirectory = [
     { name:'Наставник логистического центра', scope:'Логистический центр · свое подразделение', source:'Справочник бизнес-ролей', use:'Практика и обратная связь' },
     { name:'HRBP логистического центра', scope:'Логистическая сеть', source:'Справочник бизнес-ролей', use:'Сопровождение и эскалации' },
     { name:'Эксперт по охране труда', scope:'Все подразделения', source:'Справочник бизнес-ролей', use:'Проверка обязательного допуска' },
     { name:'Специалист IT / IAM', scope:'Все подразделения', source:'Справочник бизнес-ролей', use:'Доступы и рабочие системы' },
     { name:'Руководитель подразделения', scope:'По оргструктуре сотрудника', source:'Системная связь', use:'Контрольные встречи и решения' }
   ];
+  const participantContext = () => [state.assistantAnswers?.audience,state.assistantAnswers?.result,state.manualLaunch?.audience,...(state.assistantLiveHistory||[]).map(item=>item.text)].filter(Boolean).join(' ');
+  const roleDirectory = () => {
+    const rows = window.SkillazReferenceData?.relevantBusinessRoles(participantContext(),18) || [];
+    if (!rows.length) return baseRoleDirectory;
+    return rows.map(row=>({name:row.name,scope:row.assignmentRule,source:'Справочник бизнес-ролей',use:row.purpose,assignmentType:row.assignmentType,domain:row.domain}));
+  };
+  const participantSuggestions = step => {
+    const rows = roleDirectory();
+    const dominantDomain = rows[0]?.domain;
+    const scopedRows = dominantDomain ? rows.filter(row=>row.domain===dominantDomain) : rows;
+    if (step === 2) return scopedRows.filter(row=>row.assignmentType==='administrative').slice(0,3).map(row=>row.name).concat(['Назначающий администратор']).slice(0,4);
+    const functional = scopedRows.filter(row=>row.assignmentType!=='administrative');
+    const source = functional.length ? functional : scopedRows;
+    return [source.slice(0,3),[source[0],source[3]].filter(Boolean),source.slice(1,4)].filter(group=>group.length).map(group=>group.map(row=>row.name).join(', '));
+  };
 
   const safe = value => String(value || '').replace(/[&<>"']/g, symbol => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[symbol]));
 
@@ -68,7 +83,7 @@
   };
 
   const selectedRoles = () => (state.newRoles || []).map(role => {
-    const found = roleDirectory.find(item => item.name === role.name);
+    const found = roleDirectory().find(item => item.name === role.name);
     return found || { ...role, name:role.name, scope:role.scope || role.assignmentRule || 'По оргструктуре', source:'Справочник бизнес-ролей', use:role.use || role.purpose || 'Действия процесса' };
   });
 
@@ -102,7 +117,7 @@
     const question = state.participantLivePrompt || (step === 1
       ? ['Кто помогает сотруднику пройти этот процесс?','Напишите бизнес роли обычными словами. Например: «наставник на рабочем месте, HR и эксперт по охране труда».']
       : ['Кто должен следить за процессом целиком?','Этот человек увидит прогресс, просрочки и отклонения. Например: HRBP подразделения или назначающий администратор.']);
-    const suggestions = state.participantLiveSuggestions.length ? state.participantLiveSuggestions : (step === 1 ? ['Наставник, HR и эксперт по охране труда','Наставник и руководитель','HR и специалист IT'] : ['HRBP подразделения','Назначающий администратор','Руководитель подразделения']);
+    const suggestions = state.participantLiveSuggestions.length ? state.participantLiveSuggestions : participantSuggestions(step);
     return `<div class="local-overlay assistant-overlay" role="dialog" aria-modal="true" aria-label="Помощник по участникам"><section class="assistant-shell participant-assistant-shell">
       <header class="assistant-head"><div><span class="tag purple">AI · участники</span><h1>Настроим сопровождение</h1></div><button class="btn icon-only" data-participant-action="close-assistant">×</button></header>
       <div class="assistant-layout"><main class="assistant-dialogue"><div class="assistant-context"><span class="status-dot"></span><div><b>Справочник бизнес-ролей</b><small>AI рекомендует роли по сценарию, оргструктуре и доступному источнику назначения</small></div></div><div class="assistant-thread">${participantHistory()}
@@ -113,13 +128,9 @@
 
   const parseRoles = value => {
     const lower = value.toLowerCase();
-    const roles = [];
-    if (/настав|помощ/.test(lower)) roles.push(roleDirectory[0]);
-    if (/hr|эйчар|кадр|координ/.test(lower)) roles.push(roleDirectory[1]);
-    if (/охран|безопас|эксперт/.test(lower)) roles.push(roleDirectory[2]);
-    if (/it|айти|доступ/.test(lower)) roles.push(roleDirectory[3]);
-    if (/руковод/.test(lower)) roles.push(roleDirectory[4]);
-    return roles.length ? roles : [roleDirectory[0], roleDirectory[1], roleDirectory[2]];
+    const directory = roleDirectory();
+    const roles = directory.filter(role => role.name.toLowerCase().split(/[^а-яa-z]+/).some(word=>word.length>4&&lower.includes(word.slice(0,6))));
+    return roles.length ? roles : directory.slice(0,3);
   };
 
   const submitParticipant = async value => {

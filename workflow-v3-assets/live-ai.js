@@ -21,10 +21,15 @@
   const context = query => {
     const catalog = window.SkillazProductionCatalog;
     if (!catalog) return {};
+    const references = window.SkillazReferenceData?.context(query) || {};
     return {
       elements:catalog.relevantElements(query, 28),
       businessRoles:catalog.relevantRoles(query, 24),
-      catalogStats:catalog.stats
+      organizationStructures:references.structures || [],
+      positions:references.positions || [],
+      employeeGroups:references.groups || [],
+      territories:references.regions || [],
+      catalogStats:{...catalog.stats,referenceData:window.SkillazReferenceData?.stats || {}}
     };
   };
 

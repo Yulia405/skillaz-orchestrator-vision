@@ -108,11 +108,16 @@
   };
   const relevant = (rows, query, limit) => rows.map(row => ({row,score:score(row,query)})).sort((a,b)=>b.score-a.score).slice(0,limit).map(item=>item.row);
 
+  const enterpriseRoles = window.SkillazReferenceData?.businessRoles || [];
   window.SkillazProductionCatalog = {
     elements:[...universalElements,...elements],
-    businessRoles,
+    businessRoles:[...enterpriseRoles,...businessRoles],
     relevantElements(query, limit=28){ return relevant(this.elements, query, limit); },
-    relevantRoles(query, limit=24){ return relevant(this.businessRoles, query, limit); },
-    stats:{ elements:universalElements.length + elements.length, roles:businessRoles.length }
+    relevantRoles(query, limit=24){
+      const contextual = window.SkillazReferenceData?.relevantBusinessRoles(query,limit) || [];
+      const fallback = relevant(this.businessRoles, query, limit);
+      return [...contextual,...fallback.filter(role=>!contextual.some(item=>item.id===role.id))].slice(0,limit);
+    },
+    stats:{ elements:universalElements.length + elements.length, roles:businessRoles.length + enterpriseRoles.length }
   };
 })();

@@ -95,6 +95,29 @@ function launchResult(result, input) {
   return result;
 }
 
+function participantsResult(result, input) {
+  const directory = Array.isArray(input.catalog?.businessRoles) ? input.catalog.businessRoles : [];
+  if (!directory.length) return result;
+  const dominantDomain = directory.find(role=>role.domain)?.domain;
+  const scopedDirectory = dominantDomain ? directory.filter(role=>role.domain === dominantDomain) : directory;
+  const currentRoles = input.context?.currentRoles || [];
+  const administrative = scopedDirectory.filter(role => role.assignmentType === 'administrative');
+  const functional = scopedDirectory.filter(role => role.assignmentType !== 'administrative');
+  if (!currentRoles.length) {
+    const source = functional.length ? functional : directory;
+    result.question = result.question || 'Кто будет сопровождать сотрудника в этом процессе?';
+    result.hint = 'Предлагаю бизнес-роли из справочника с учётом должности, подразделения и отрасли.';
+    result.suggestions = [source.slice(0,3),source.slice(1,4),source.slice(3,6)].filter(group=>group.length).map(group=>group.map(role=>role.name).join(', '));
+  } else {
+    const source = administrative.length ? administrative : directory;
+    result.question = result.question || 'Кто отвечает за процесс целиком и получает сигналы риска?';
+    result.hint = 'Координатор определяется по оргструктуре или назначается администратором.';
+    result.suggestions = source.slice(0,4).map(role=>role.name);
+  }
+  if (!Array.isArray(result.roles) || !result.roles.length) result.roles = scopedDirectory.slice(0,4).map(role=>({name:role.name,assignmentType:role.assignmentType,purpose:role.purpose,assignmentRule:role.assignmentRule||role.assignmentSource}));
+  return result;
+}
+
 export default {
   async fetch(request, env) {
     const origin = request.headers.get('origin') || '';
@@ -139,7 +162,7 @@ export default {
     if (!response.ok) return json({error:'OpenAI request failed',details:upstream.error?.message || 'Unknown error'},502,origin);
     try {
       const result = JSON.parse(outputText(upstream));
-      return json(task === 'launch' ? launchResult(result,input) : result,200,origin);
+      return json(task === 'launch' ? launchResult(result,input) : task === 'participants' ? participantsResult(result,input) : result,200,origin);
     }
     catch { return json({error:'AI returned invalid JSON'},502,origin); }
   }
