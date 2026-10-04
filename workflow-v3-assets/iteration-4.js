@@ -6,6 +6,15 @@
   state.outcomeModal ??= null;
   state.goalScenarios ??= [];
   state.ktScenarios ??= [];
+  state.generatedGoalTemplates ??= [];
+  state.generatedKtTemplates ??= [];
+  state.goalPlacements ??= {};
+  state.ktPlacements ??= {};
+  state.goalLinkMode ??= null;
+  state.activeTemplateScenario ??= null;
+  state.templateScenarioPicker ??= null;
+  state.catalogTargetScenario ??= null;
+  state.pendingTemplateKind ??= null;
   state.outcomeRules ??= {
     'base-day1-1': { condition:'Не пройден в срок', action:'Уведомить руководителя и сотрудника' },
     'base-immerse-0': { condition:'Результат ниже 80%', action:'Назначить дополнительный тест' }
@@ -20,6 +29,15 @@
   const previousCheckpointRail = checkpointRail;
   const previousScenarioModalV4 = scenarioModalV4;
   const safe4 = value => String(value ?? '').replace(/[&<>"']/g, symbol => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[symbol]));
+  const scenarioKey = (kind,index) => `${kind}-manual-${index}`;
+  const scenarioRecords = kind => (kind === 'goal' ? state.goalScenarios : state.ktScenarios).map((scenario,index)=>({kind,key:scenarioKey(kind,index),scenario,index,label:scenario.branches.map(id=>branches.find(branch=>branch.id===id)?.name).filter(Boolean).join(', ') || 'Все ветки'}));
+  const placedTemplates = (kind,key) => (kind === 'goal' ? state.goalPlacements : state.ktPlacements)[key] || [];
+  const goalTemplateCard = (template,key) => `<article class="placed-template-card goal-template-card" data-goal-template-id="${safe4(template.id)}" data-placement-key="${safe4(key)}"><span class="tag purple">Цель · ${safe4(template.day ? `до ${template.day} дня` : 'по сценарию')}</span><b>${safe4(template.title)}</b><small>${safe4(template.result || template.meta || 'Измеримый результат сотрудника')}</small><div class="template-links">${(template.links||[]).map(link=>`<button data-unlink-goal="${safe4(template.id)}" data-unlink-key="${safe4(key)}" data-unlink-item="${safe4(link.id)}" title="Удалить связь">↗ ${safe4(link.title)} ×</button>`).join('') || '<span>Связей с действиями пока нет</span>'}</div><div class="template-actions"><button class="btn small ${state.goalLinkMode?.templateId===template.id?'active':''}" data-link-goal="${safe4(template.id)}" data-link-key="${safe4(key)}">${state.goalLinkMode?.templateId===template.id?'Выберите карточку этапа…':'Связать с действием'}</button><button class="btn icon-only small" data-remove-template="${safe4(template.id)}" data-remove-key="${safe4(key)}" data-remove-kind="goal" title="Убрать цель">×</button></div><i class="goal-port"></i></article>`;
+  const ktTemplateCard = (template,key) => `<article class="placed-template-card kt-template-card"><span class="tag amber">Контрольная точка · ${safe4(template.day ? `${template.day} день` : 'по сценарию')}</span><b>${safe4(template.title)}</b><small>${safe4(template.agenda || template.meta || 'Проверка результата этапа')}</small><button class="btn icon-only small" data-remove-template="${safe4(template.id)}" data-remove-key="${safe4(key)}" data-remove-kind="kt" title="Убрать КТ">×</button></article>`;
+  const scenarioDropZone = (kind,key) => {
+    const templates = placedTemplates(kind,key);
+    return `<div class="scenario-template-zone" data-template-drop-kind="${kind}" data-template-drop-key="${safe4(key)}">${templates.map(template=>kind==='goal'?goalTemplateCard(template,key):ktTemplateCard(template,key)).join('')}<div class="scenario-drop-placeholder">Перетащите сюда ${kind==='goal'?'цель':'контрольную точку'} из каталога</div></div>`;
+  };
 
   // A branch is a variant of the employee path. Participant work stays inside
   // the stages as ordinary tasks, so the manager demo must not expose a
@@ -43,8 +61,11 @@
     const source = {course:'LMS',article:'База знаний',file:'Файлы клиента',task:'Шаблоны задач',test:'Оценка знаний',survey:'Опросы',action:'Skillaz',goal:'Каталог целей',checkpoint:'Каталог КТ'};
     const usage = {course:'Назначается сотруднику',article:'Открывается в плане',file:'Доступен для скачивания',task:'Создаёт задачу исполнителю',test:'Сохраняет результат',survey:'Собирает обратную связь',action:'Выполняется автоматически',goal:'Создаётся по сценарию целей',checkpoint:'Запускается по сценарию КТ'};
     return order.flatMap(type => {
-      const liveRows = production.filter(row => row.type === type).slice(0,12).map(row => ({id:row.id,type,title:row.title,meta:row.description,source:row.source,usage:usage[type]}));
-      return liveRows.length ? liveRows : (db[type] || []).slice(0,12).map(row => ({id:row[0],type,title:row[1],meta:row[2],source:source[type],usage:usage[type]}));
+      const generated = type === 'goal' ? state.generatedGoalTemplates : type === 'checkpoint' ? state.generatedKtTemplates : [];
+      const generatedRows = generated.map(row=>({id:row.id,type,title:row.title,meta:row.result||row.agenda||'Создано AI по контексту должности',source:'AI · черновик',usage:usage[type],payload:row}));
+      const liveRows = production.filter(row => row.type === type).slice(0,24).map(row => ({id:row.id,type,title:row.title,meta:row.description,source:row.source,usage:usage[type],payload:row}));
+      const directoryRows = liveRows.length ? liveRows : (db[type] || []).slice(0,12).map(row => ({id:row[0],type,title:row[1],meta:row[2],source:source[type],usage:usage[type]}));
+      return [...generatedRows,...directoryRows.filter(row=>!generatedRows.some(item=>item.id===row.id))];
     });
   };
 
@@ -78,15 +99,16 @@
     const rows = elementRows();
     return `<aside class="palette clean-palette ${state.paletteOpen && state.cleanPaletteOpened ? 'open' : ''}">
       <div class="palette-head"><div class="palette-title"><div><span class="tag blue">Добавление</span><h3>${state.cleanCatalogType ? labelByType[state.cleanCatalogType] : 'Элементы процесса'}</h3><small class="muted">Выберите из каталогов или попросите AI подобрать набор</small></div><button class="btn icon-only" data-action="togglePalette">×</button></div></div>
-      <div class="creation-method-tabs"><button class="active">Выбрать вручную</button><button data-clean-ai-elements>✦ Подобрать с AI</button></div>
+      <div class="creation-method-tabs"><button class="active">Выбрать вручную</button><button data-clean-ai-elements>✦ ${state.cleanCatalogType==='goal'?'Создать цели с AI':state.cleanCatalogType==='checkpoint'?'Создать КТ с AI':'Подобрать с AI'}</button></div>
       <div class="palette-search"><input class="search" placeholder="Поиск по названию и источнику"></div>
       <div class="catalog-summary"><b>${rows.length} элементов</b><span>Из разрешённых справочников клиента</span></div>
-      <div class="palette-list clean-catalog-list">${rows.map(row => `<div class="palette-card rich-palette-card" draggable="true" data-drag-type="${row.type}" data-drag-title="${row.title}"><span class="type-icon">${iconByType[row.type] || '□'}</span><div><b>${row.title}</b><small>${labelByType[row.type]} · ${row.meta}</small><span class="catalog-meta"><em>${row.source}</em><em>${row.usage}</em><em>ID ${row.id}</em></span></div></div>`).join('')}</div>
+      <div class="palette-list clean-catalog-list">${rows.map(row => `<div class="palette-card rich-palette-card" draggable="true" data-drag-id="${safe4(row.id)}" data-drag-type="${safe4(row.type)}" data-drag-title="${safe4(row.title)}" data-drag-meta="${safe4(row.meta)}"><span class="type-icon">${iconByType[row.type] || '□'}</span><div><b>${safe4(row.title)}</b><small>${safe4(labelByType[row.type])} · ${safe4(row.meta)}</small><span class="catalog-meta"><em>${safe4(row.source)}</em><em>${safe4(row.usage)}</em><em>ID ${safe4(row.id)}</em></span></div></div>`).join('')}</div>
     </aside>`;
   };
 
   const cleanAddMenu = () => !state.cleanAddOpen ? '' : `<div class="clean-add-menu">
-    <header><b>Добавить в процесс</b><button class="btn icon-only small" data-clean-action="close-add">×</button></header>
+    <header><b>${state.activeTemplateScenario ? `Добавить в ${state.activeTemplateScenario.kind==='goal'?'сценарий целей':'сценарий КТ'}` : 'Добавить в процесс'}</b><button class="btn icon-only small" data-clean-action="close-add">×</button></header>
+    ${state.activeTemplateScenario?`<div class="active-scenario-hint"><span>Выбран сценарий</span><b>${safe4(state.activeTemplateScenario.label||'Текущий сценарий')}</b><button data-clear-active-scenario>Сбросить</button></div>`:''}
     <button data-clean-element-type="task"><i>✓</i><span><b>Задача</b><small>Действие сотрудника или участника</small></span></button>
     <button data-clean-element-type="action"><i>⚙</i><span><b>Системное действие</b><small>Выполняется автоматически</small></span></button>
     <button data-clean-element-type="course"><i>▣</i><span><b>Курс / программа</b><small>Объект из LMS</small></span></button>
@@ -101,11 +123,19 @@
     <div class="clean-structure-actions"><span>Структура процесса</span><button data-action="addStage">＋ Этап</button><button data-action="addBranch">＋ Ветка</button></div>
   </div>`;
 
+  const templateScenarioPicker = () => {
+    const kind = state.templateScenarioPicker;
+    if (!kind) return '';
+    const records = scenarioRecords(kind);
+    return `<div class="modal template-scenario-picker"><section class="dialog"><header class="dialog-head"><div><span class="tag ${kind==='goal'?'purple':'amber'}">Добавление</span><h2>Выберите сценарий</h2><p>${kind==='goal'?'Цель':'Контрольная точка'} будет добавлена в выбранный сценарий.</p></div><button class="btn icon-only" data-close-template-picker>×</button></header><div class="dialog-body scenario-choice-list">${records.map(record=>`<button data-choose-template-scenario="${record.key}" data-choose-template-kind="${kind}"><span><b>${safe4(record.label)}</b><small>${safe4(record.scenario.creator)} · ${safe4(record.scenario.timing)}</small></span><em>Выбрать →</em></button>`).join('')}</div><footer class="dialog-foot"><button class="btn" data-close-template-picker>Отмена</button></footer></section></div>`;
+  };
+
   const cleanProcessPage = () => {
     return `<div class="generated-clean">
       <button class="btn clean-canvas-add" data-clean-action="toggle-add">＋ Добавить</button>
       ${previousCanvasPage()}
       ${cleanAddMenu()}
+      ${templateScenarioPicker()}
     </div>`;
   };
 
@@ -116,11 +146,12 @@
     const cards = [];
     if (aiState.goals?.length) {
       const scopeNames = [...new Set(aiState.goals.map(goal=>branches.find(branch=>branch.id===goal.branchId)?.name).filter(Boolean))];
-      cards.push(`<article class="scenario-card compact-scenario-card" data-open-scenario="goal"><span class="tag purple">AI · сценарий целей</span><b>${safe4(scopeNames.join(', ') || 'Выбранные ветки')}</b><small>Цели создаёт ${safe4(aiState.creator || 'администратор')} · ${aiState.goals.length} шаблона добавлено</small><button class="btn small">Настроить сценарий</button></article>`);
+      cards.push(`<article class="scenario-card compact-scenario-card scenario-with-templates ${state.activeTemplateScenario?.key==='goal-ai'?'active':''}" data-template-scenario-kind="goal" data-template-scenario-key="goal-ai"><span class="tag purple">AI · сценарий целей</span><b>${safe4(scopeNames.join(', ') || 'Выбранные ветки')}</b><small>Цели создаёт ${safe4(aiState.creator || 'администратор')}</small><button class="btn small" data-edit-scenario="goal">Настроить сценарий</button>${scenarioDropZone('goal','goal-ai')}</article>`);
     }
     state.goalScenarios.forEach((scenario,index)=>{
       const scopeNames = scenario.branches.map(id=>branches.find(branch=>branch.id===id)?.name).filter(Boolean);
-      cards.push(`<article class="scenario-card compact-scenario-card" data-open-scenario="goal-manual-${index}"><span class="tag purple">Сценарий целей</span><b>${safe4(scopeNames.join(', ') || 'Все ветки')}</b><small>Цели создаёт ${safe4(scenario.creator)} · ${safe4(scenario.timing)}</small><button class="btn small">Изменить</button></article>`);
+      const key = scenarioKey('goal',index);
+      cards.push(`<article class="scenario-card compact-scenario-card scenario-with-templates ${state.activeTemplateScenario?.key===key?'active':''}" data-template-scenario-kind="goal" data-template-scenario-key="${key}"><span class="tag purple">Сценарий целей</span><b>${safe4(scopeNames.join(', ') || 'Все ветки')}</b><small>Цели создаёт ${safe4(scenario.creator)} · ${safe4(scenario.timing)}</small><button class="btn small" data-edit-scenario="goal-manual-${index}">Изменить</button>${scenarioDropZone('goal',key)}</article>`);
     });
     return `<section class="scenario-rail expanded live-scenario-rail clean-scenario-rail"><div class="rail-label"><b>Сценарии целей</b><small>Сценарий задаёт ветки, автора и срок. Сами цели добавляются через «Добавить».</small></div><div class="scenario-cards">${cards.join('') || '<div class="rail-empty-inline"><b>Сценариев пока нет</b><span>Создайте отдельные сценарии для кассиров, продавцов или сотрудников выкладки.</span></div>'}<button class="btn small" data-action="addGoalScenario">＋ Сценарий целей</button></div></section>`;
   };
@@ -142,11 +173,12 @@
     if (entries.length) {
       const scopeIds = (aiState.sessions || []).flatMap(session=>session.branches||[]);
       const scopeNames = [...new Set(scopeIds.map(id=>branches.find(branch=>branch.id===id)?.name).filter(Boolean))];
-      cards.push(`<article class="checkpoint-card compact-scenario-card" data-open-scenario="kt"><span class="tag amber">AI · сценарий КТ</span><b>${safe4(scopeNames.join(', ') || 'Выбранные ветки')}</b><small>${entries.length} шаблона добавлено · по срокам элементов</small><button class="btn small">Настроить сценарий</button></article>`);
+      cards.push(`<article class="checkpoint-card compact-scenario-card scenario-with-templates ${state.activeTemplateScenario?.key==='kt-ai'?'active':''}" data-template-scenario-kind="kt" data-template-scenario-key="kt-ai"><span class="tag amber">AI · сценарий КТ</span><b>${safe4(scopeNames.join(', ') || 'Выбранные ветки')}</b><small>По срокам элементов</small><button class="btn small" data-edit-scenario="kt">Настроить сценарий</button>${scenarioDropZone('kt','kt-ai')}</article>`);
     }
     state.ktScenarios.forEach((scenario,index)=>{
       const scopeNames = scenario.branches.map(id=>branches.find(branch=>branch.id===id)?.name).filter(Boolean);
-      cards.push(`<article class="checkpoint-card compact-scenario-card" data-open-scenario="kt-manual-${index}"><span class="tag amber">Сценарий КТ</span><b>${safe4(scopeNames.join(', ') || 'Все ветки')}</b><small>${safe4(scenario.creator)} · ${safe4(scenario.timing)}</small><button class="btn small">Изменить</button></article>`);
+      const key = scenarioKey('kt',index);
+      cards.push(`<article class="checkpoint-card compact-scenario-card scenario-with-templates ${state.activeTemplateScenario?.key===key?'active':''}" data-template-scenario-kind="kt" data-template-scenario-key="${key}"><span class="tag amber">Сценарий КТ</span><b>${safe4(scopeNames.join(', ') || 'Все ветки')}</b><small>${safe4(scenario.creator)} · ${safe4(scenario.timing)}</small><button class="btn small" data-edit-scenario="kt-manual-${index}">Изменить</button>${scenarioDropZone('kt',key)}</article>`);
     });
     return `<section class="checkpoint-rail expanded live-scenario-rail clean-scenario-rail"><div class="rail-label"><b style="color:var(--amber)">Сценарии контрольных точек</b><small>Сценарий задаёт ветки, ответственного и запуск. Шаблоны КТ добавляются через «Добавить».</small></div><div class="checkpoint-cards">${cards.join('') || '<div class="rail-empty-inline"><b>Сценариев пока нет</b><span>Создайте сценарий, затем добавьте нужные шаблоны контрольных точек.</span></div>'}<button class="btn small" data-action="addKtScenario">＋ Сценарий КТ</button></div></section>`;
   };
@@ -170,33 +202,58 @@
     .replace(/<nav class="stepbar[^\"]*">[\s\S]*?<\/nav>/, '')
     .replace('<div class="shell">', '<div class="shell clean-editor-shell unified-editor-shell">') + outcomeModal();
 
+  const drawGoalLinks = () => {
+    const surface = document.querySelector('.canvas-surface');
+    if (!surface) return;
+    surface.querySelector('.goal-link-layer')?.remove();
+    const links = [];
+    document.querySelectorAll('.goal-template-card[data-goal-template-id]').forEach(card=>{
+      const template = (state.goalPlacements[card.dataset.placementKey]||[]).find(item=>item.id===card.dataset.goalTemplateId);
+      (template?.links||[]).forEach(link=>{
+        const target = document.querySelector(`[data-item="${CSS.escape(link.id)}"]`);
+        if (target) links.push({card,target});
+      });
+    });
+    if (!links.length) return;
+    const surfaceRect = surface.getBoundingClientRect();
+    const scale = Number(state.zoom) || 1;
+    const svg = document.createElementNS('http://www.w3.org/2000/svg','svg');
+    svg.setAttribute('class','goal-link-layer');
+    svg.setAttribute('width',String(surface.scrollWidth)); svg.setAttribute('height',String(surface.scrollHeight));
+    svg.innerHTML = '<defs><marker id="goalArrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#7651c7"/></marker></defs>';
+    links.forEach(({card,target})=>{
+      const from=card.getBoundingClientRect(),to=target.getBoundingClientRect();
+      const x1=(from.left+from.width/2-surfaceRect.left)/scale,y1=(from.bottom-surfaceRect.top)/scale;
+      const x2=(to.left+to.width/2-surfaceRect.left)/scale,y2=(to.top-surfaceRect.top)/scale;
+      const bend=Math.max(30,(y2-y1)*.45);
+      const path=document.createElementNS('http://www.w3.org/2000/svg','path');
+      path.setAttribute('d',`M ${x1} ${y1} C ${x1} ${y1+bend}, ${x2} ${y2-bend}, ${x2} ${y2}`);
+      path.setAttribute('marker-end','url(#goalArrow)'); svg.append(path);
+    });
+    surface.prepend(svg);
+  };
+
   bind = function () {
     previousBind();
     if (document.querySelector('.live-scenario-contents')) document.querySelectorAll('.ai-applied-list').forEach(node => node.remove());
-    const goalScenario = document.querySelector('.scenario-rail .scenario-card');
-    const checkpointScenario = document.querySelector('.checkpoint-rail .checkpoint-card');
-    if (goalScenario) {
-      goalScenario.dataset.focus = 'goals';
-      goalScenario.onclick = event => {
-        if (event.target.closest('button')) {
-          state.scenarioModal = goalScenario.dataset.openScenario || 'goal';
-        } else {
-          state.focus = state.focus === 'goals' ? null : 'goals';
-        }
+    document.querySelectorAll('[data-template-scenario-key]').forEach(card => {
+      card.onclick = event => {
+        if (event.target.closest('[data-edit-scenario],[data-link-goal],[data-unlink-goal],[data-remove-template]')) return;
+        const kind = card.dataset.templateScenarioKind;
+        const key = card.dataset.templateScenarioKey;
+        const record = scenarioRecords(kind).find(item=>item.key===key);
+        state.activeTemplateScenario = {kind,key,label:record?.label || card.querySelector(':scope>b')?.textContent || 'Текущий сценарий'};
+        state.cleanCatalogType = kind === 'goal' ? 'goal' : 'checkpoint';
+        state.catalogTargetScenario = key;
+        state.cleanPaletteOpened = true;
+        state.paletteOpen = true;
         render();
+        toast(`Выбран сценарий. Перетащите ${kind==='goal'?'цели':'КТ'} из каталога`);
       };
-    }
-    if (checkpointScenario) {
-      checkpointScenario.dataset.focus = 'kt-standard';
-      checkpointScenario.onclick = event => {
-        if (event.target.closest('button')) {
-          state.scenarioModal = checkpointScenario.dataset.openScenario || 'kt';
-        } else {
-          state.focus = state.focus === 'kt-standard' ? null : 'kt-standard';
-        }
-        render();
-      };
-    }
+    });
+    document.querySelectorAll('[data-edit-scenario]').forEach(button => button.onclick = event => {
+      event.preventDefault(); event.stopPropagation(); state.scenarioModal = button.dataset.editScenario; render();
+    });
     if (state.step === 'base') {
       const target = document.querySelector('.launch-title, .page-card .settings-title');
       if (target && !target.querySelector('.inner-ai-action')) {
@@ -217,7 +274,32 @@
     }
     document.querySelectorAll('.ai-canvas-button').forEach(button => button.classList.add('clean-hidden-ai-trigger'));
     const elementAi = document.querySelector('[data-clean-ai-elements]');
-    if (elementAi) elementAi.onclick = () => document.querySelector('.ai-canvas-button')?.click();
+    if (elementAi) elementAi.onclick = () => {
+      const mode = state.cleanCatalogType === 'goal' ? 'goals' : state.cleanCatalogType === 'checkpoint' ? 'checkpoints' : 'elements';
+      aiOpen(mode);
+    };
+
+    document.querySelectorAll('.clean-catalog-list .palette-card').forEach(card=>card.ondragstart = event => {
+      event.dataTransfer.setData('text/plain',JSON.stringify({id:card.dataset.dragId,type:card.dataset.dragType,title:card.dataset.dragTitle,meta:card.dataset.dragMeta}));
+    });
+    document.querySelectorAll('[data-template-drop-key]').forEach(zone=>{
+      zone.ondragover = event => { event.preventDefault(); zone.classList.add('dragover'); };
+      zone.ondragleave = () => zone.classList.remove('dragover');
+      zone.ondrop = event => {
+        event.preventDefault(); event.stopPropagation(); zone.classList.remove('dragover');
+        let data; try { data = JSON.parse(event.dataTransfer.getData('text/plain')); } catch { return; }
+        const kind = zone.dataset.templateDropKind;
+        const expected = kind === 'goal' ? 'goal' : 'checkpoint';
+        if (data.type !== expected) return toast(`В этот сценарий можно добавить только ${kind==='goal'?'цели':'контрольные точки'}`);
+        const source = kind === 'goal' ? state.generatedGoalTemplates : state.generatedKtTemplates;
+        const catalog = window.SkillazProductionCatalog?.elements || [];
+        const generated = source.find(item=>item.id===data.id) || catalog.find(item=>item.id===data.id) || {};
+        const collection = kind === 'goal' ? state.goalPlacements : state.ktPlacements;
+        const list = collection[zone.dataset.templateDropKey] ||= [];
+        if (!list.some(item=>item.id===data.id)) list.push({...generated,id:data.id||`${kind}-${Date.now()}`,type:data.type,title:data.title,meta:data.meta,result:generated.result||generated.description||data.meta,agenda:generated.agenda||generated.description||data.meta,pulse:generated.pulse||'Насколько уверенно вы выполняете задачи роли?; Что мешает двигаться дальше?; Какая поддержка нужна?',day:generated.day||30,links:generated.links||generated.linked||[]});
+        render(); toast(`${kind==='goal'?'Цель':'Контрольная точка'} добавлена в сценарий`);
+      };
+    });
 
     const scenarioDialog = document.querySelector('.scenario-dialog-v4');
     const scenarioAi = scenarioDialog?.querySelector('.ai-scenario-button');
@@ -258,11 +340,46 @@
       render();
       toast('Выход элемента сохранён');
     });
+    drawGoalLinks();
   };
 
   if (!window.__workflowIterationFourBound) {
     window.__workflowIterationFourBound = true;
     document.addEventListener('click', event => {
+      const chooseScenario = event.target.closest('[data-choose-template-scenario]');
+      if (chooseScenario) {
+        event.preventDefault(); event.stopImmediatePropagation();
+        const kind=chooseScenario.dataset.chooseTemplateKind,key=chooseScenario.dataset.chooseTemplateScenario;
+        const record=scenarioRecords(kind).find(item=>item.key===key);
+        state.activeTemplateScenario={kind,key,label:record?.label||'Текущий сценарий'};
+        state.catalogTargetScenario=key; state.templateScenarioPicker=null; state.cleanCatalogType=kind==='goal'?'goal':'checkpoint'; state.cleanPaletteOpened=true; state.paletteOpen=true; render(); return;
+      }
+      if (event.target.closest('[data-close-template-picker]')) { event.preventDefault(); state.templateScenarioPicker=null; render(); return; }
+      if (event.target.closest('[data-clear-active-scenario]')) { event.preventDefault(); state.activeTemplateScenario=null; state.catalogTargetScenario=null; render(); return; }
+      const linkButton = event.target.closest('[data-link-goal]');
+      if (linkButton) { event.preventDefault(); event.stopImmediatePropagation(); state.goalLinkMode={templateId:linkButton.dataset.linkGoal,key:linkButton.dataset.linkKey}; render(); toast('Теперь нажмите на карточку действия в этапе'); return; }
+      const unlinkButton = event.target.closest('[data-unlink-goal]');
+      if (unlinkButton) {
+        event.preventDefault(); event.stopImmediatePropagation();
+        const template=(state.goalPlacements[unlinkButton.dataset.unlinkKey]||[]).find(item=>item.id===unlinkButton.dataset.unlinkGoal);
+        if(template) template.links=(template.links||[]).filter(link=>link.id!==unlinkButton.dataset.unlinkItem);
+        render(); return;
+      }
+      const removeButton = event.target.closest('[data-remove-template]');
+      if (removeButton) {
+        event.preventDefault(); event.stopImmediatePropagation();
+        const collection=removeButton.dataset.removeKind==='goal'?state.goalPlacements:state.ktPlacements;
+        collection[removeButton.dataset.removeKey]=(collection[removeButton.dataset.removeKey]||[]).filter(item=>item.id!==removeButton.dataset.removeTemplate);
+        render(); toast('Шаблон убран из сценария'); return;
+      }
+      const targetItem = event.target.closest('[data-item]');
+      if (targetItem && state.goalLinkMode) {
+        event.preventDefault(); event.stopImmediatePropagation();
+        const mode=state.goalLinkMode,template=(state.goalPlacements[mode.key]||[]).find(item=>item.id===mode.templateId);
+        const cell=targetItem.dataset.sourceCell,item=(state.items[cell]||[]).find(row=>row.id===targetItem.dataset.item);
+        if(template&&item){template.links ||= [];if(!template.links.some(link=>link.id===item.id))template.links.push({id:item.id,title:item.title,cell});}
+        state.goalLinkMode=null; render(); toast('Цель связана с действием стрелкой'); return;
+      }
       const save = event.target.closest('[data-action="saveScenario"][data-scenario-kind]');
       if (!save) return;
       event.preventDefault();
@@ -277,8 +394,14 @@
       const collection = save.dataset.scenarioKind === 'goal' ? state.goalScenarios : state.ktScenarios;
       const index = save.dataset.scenarioIndex === '' ? -1 : Number(save.dataset.scenarioIndex);
       if (index >= 0) collection[index] = scenario; else collection.push(scenario);
+      const savedIndex = index >= 0 ? index : collection.length - 1;
       if (save.dataset.scenarioKind === 'goal') state.newGoalScenario = true; else state.newKtScenario = true;
       state.scenarioModal = null;
+      if (state.pendingTemplateKind === save.dataset.scenarioKind) {
+        const key=scenarioKey(save.dataset.scenarioKind,savedIndex);
+        state.activeTemplateScenario={kind:save.dataset.scenarioKind,key,label:scenario.branches.map(id=>branches.find(branch=>branch.id===id)?.name).filter(Boolean).join(', ')||'Все ветки'};
+        state.catalogTargetScenario=key; state.cleanCatalogType=save.dataset.scenarioKind==='goal'?'goal':'checkpoint'; state.cleanPaletteOpened=true; state.paletteOpen=true; state.pendingTemplateKind=null;
+      }
       render();
       toast('Сценарий сохранён. Добавьте шаблоны через кнопку «Добавить»');
     }, true);
@@ -287,8 +410,26 @@
       const elementNode = event.target.closest('[data-clean-element-type]');
       if (elementNode) {
         event.preventDefault();
+        const type = elementNode.dataset.cleanElementType;
+        if (type === 'goal' || type === 'checkpoint') {
+          const kind = type === 'goal' ? 'goal' : 'kt';
+          const records = scenarioRecords(kind);
+          if (!records.length) {
+            state.cleanAddOpen = false;
+            state.pendingTemplateKind = kind;
+            state.scenarioModal = `${kind}-new`;
+            render();
+            toast(`Сначала создайте сценарий ${kind==='goal'?'целей':'контрольных точек'}`);
+            return;
+          }
+          if (!state.activeTemplateScenario || state.activeTemplateScenario.kind !== kind) {
+            if (records.length > 1) { state.cleanAddOpen = false; state.templateScenarioPicker = kind; render(); return; }
+            state.activeTemplateScenario = {...records[0],label:records[0].label};
+          }
+          state.catalogTargetScenario = state.activeTemplateScenario.key;
+        }
         state.cleanAddOpen = false;
-        state.cleanCatalogType = elementNode.dataset.cleanElementType;
+        state.cleanCatalogType = type;
         state.cleanPaletteOpened = true;
         state.paletteOpen = true;
         render();

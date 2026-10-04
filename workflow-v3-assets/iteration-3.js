@@ -58,7 +58,7 @@
   const clone = value => JSON.parse(JSON.stringify(value));
   const draftSnapshot = () => ({
     stages:clone(stages), branches:clone(branches), items:clone(state.items || {}), extras:clone(extras || {}),
-    state:clone({processTitle:state.processTitle,assistantAnswers:state.assistantAnswers,manualLaunch:state.manualLaunch,launchConfigured:state.launchConfigured,scopeSelections:state.scopeSelections,newRoles:state.newRoles,coordinatorRule:state.coordinatorRule,generatedProcess:state.generatedProcess,generatedAiProcess:state.generatedAiProcess,goalScenarios:state.goalScenarios,ktScenarios:state.ktScenarios,outcomeRules:state.outcomeRules}),
+    state:clone({processTitle:state.processTitle,assistantAnswers:state.assistantAnswers,manualLaunch:state.manualLaunch,launchConfigured:state.launchConfigured,scopeSelections:state.scopeSelections,newRoles:state.newRoles,coordinatorRule:state.coordinatorRule,generatedProcess:state.generatedProcess,generatedAiProcess:state.generatedAiProcess,goalScenarios:state.goalScenarios,ktScenarios:state.ktScenarios,outcomeRules:state.outcomeRules,generatedGoalTemplates:state.generatedGoalTemplates,generatedKtTemplates:state.generatedKtTemplates,goalPlacements:state.goalPlacements,ktPlacements:state.ktPlacements,activeTemplateScenario:state.activeTemplateScenario}),
     ai:typeof aiState === 'object' ? clone({goals:aiState.goals,sessions:aiState.sessions,creator:aiState.creator}) : null
   });
   const persistDraft = () => {
@@ -78,6 +78,7 @@
     state.items = clone(saved.items || {});
     extras = clone(saved.extras || {});
     Object.assign(state,clone(saved.state || {}),{screen:'editor',step:'base',view:'canvas',layer:'process',newWorkflow:true,workflow:id,demoDraftId:id,paletteOpen:false,rolePickerOpen:false,participantAssistantOpen:false});
+    ensureCommonBranch();
     if (saved.ai && typeof aiState === 'object') Object.assign(aiState,clone(saved.ai));
     render();
   };
@@ -107,6 +108,26 @@
   };
 
   const canvasType = type => ({test:'assessment',checkpoint:'assessment',meeting:'task',action:'task',goal:'task'}[type] || type || 'task');
+  const needsCommonBranch = () => /общая часть|вариант/i.test(String(state.assistantAnswers?.pathType || ''));
+  const ensureCommonBranch = () => {
+    if (!needsCommonBranch() || !branches.length || branches.some(branch=>branch.id==='base')) return;
+    const commonIndex = branches.findIndex((branch,index)=>index===0 && /вся выбранная|общая часть|общий контур|^true$/i.test(`${branch.name} ${branch.desc||''} ${(branch.conditions||[]).join(' ')}`));
+    if (commonIndex >= 0) {
+      const oldId = branches[commonIndex].id;
+      branches[commonIndex] = {...branches[commonIndex],id:'base',name:'Общий контур',desc:'Вся выбранная аудитория',conditions:['Вся выбранная аудитория'],meta:['Вся аудитория','AI']};
+      stages.forEach(stage=>{ const oldKey=`${oldId}-${stage.id}`,newKey=`base-${stage.id}`; if(state.items?.[oldKey]){state.items[newKey]=state.items[oldKey];delete state.items[oldKey];} });
+      return;
+    }
+    branches.unshift({id:'base',name:'Общий контур',meta:['Вся аудитория','AI'],desc:'Вся выбранная аудитория',conditions:['Вся выбранная аудитория']});
+    state.items ||= {};
+    stages.forEach(stage=>{
+      const lists=branches.filter(branch=>branch.id!=='base').map(branch=>state.items[`${branch.id}-${stage.id}`]||[]);
+      if(lists.length<2) return;
+      const shared=[...new Set(lists[0].map(item=>item.title))].filter(title=>lists.every(list=>list.some(item=>item.title===title)));
+      state.items[`base-${stage.id}`]=shared.map(title=>({...lists[0].find(item=>item.title===title),id:`base-${stage.id}-${Math.random().toString(36).slice(2,8)}`}));
+      if(shared.length) branches.filter(branch=>branch.id!=='base').forEach(branch=>{const key=`${branch.id}-${stage.id}`;state.items[key]=(state.items[key]||[]).filter(item=>!shared.includes(item.title));});
+    });
+  };
   const enrichGeneratedItems = () => {
     const catalog = window.SkillazProductionCatalog;
     if (!catalog || !branches.length || !stages.length) return;
@@ -244,6 +265,7 @@
         (state.items[cell] ||= []).push({id,type:canvasType(item.type),title:item.title,meta:item.assignee||'AI · каталог',sourceId:item.sourceId,outcomes:item.outcomes||[]});
         if (item.outcomes?.[0] && state.outcomeRules) state.outcomeRules[id] = {condition:item.outcomes[0].if,action:item.outcomes[0].then};
       });
+      ensureCommonBranch();
       enrichGeneratedItems();
       extras = {};
       state.processTitle = generated.title || state.assistantAnswers?.scenario || 'Новый процесс';
@@ -274,7 +296,7 @@
         {id:'local-stage-4',name:'Проверка знаний и навыков',days:'до 30 дня',count:0},
         {id:'local-stage-5',name:'Самостоятельная работа',days:'до 60 дня',count:0}
       );
-      branches.splice(0,branches.length,{id:'local-common',name:'Общая часть',meta:['Вся аудитория','AI'],desc:'Вся выбранная аудитория',conditions:['Вся выбранная аудитория']},...audienceNames.slice(0,4).map((name,index)=>({id:`local-role-${index+1}`,name:`Путь: ${name}`,meta:[`Должность: ${name}`,'AI'],desc:`Должность: ${name}`,conditions:[`Должность: ${name}`]})));
+      branches.splice(0,branches.length,{id:'base',name:'Общий контур',meta:['Вся аудитория','AI'],desc:'Вся выбранная аудитория',conditions:['Вся выбранная аудитория']},...audienceNames.slice(0,4).map((name,index)=>({id:`local-role-${index+1}`,name:`Путь: ${name}`,meta:[`Должность: ${name}`,'AI'],desc:`Должность: ${name}`,conditions:[`Должность: ${name}`]})));
       state.items = {};
       extras = {};
       state.processTitle = state.assistantAnswers?.scenario && state.assistantAnswers.scenario !== 'Новый сотрудник' ? state.assistantAnswers.scenario : `Адаптация: ${audienceNames.join(', ')}`;

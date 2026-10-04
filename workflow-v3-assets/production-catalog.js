@@ -75,6 +75,27 @@
     tags:['универсальный',type,'адаптация','новая роль']
   }));
 
+  const goalBlueprints = {
+    logistics:[['Самостоятельно выполнять маршрут без критических отклонений','Не менее 95% доставок в срок и корректные статусы в системе'],['Освоить операции WMS','Все обязательные операции выполняются без помощи наставника'],['Соблюдать стандарты безопасной доставки','Нет нарушений чеклиста безопасности в течение 10 смен'],['Качественно взаимодействовать с получателями','Оценка сервиса не ниже установленного стандарта']],
+    retail:[['Самостоятельно работать на кассе','Смена закрыта без критических ошибок и расхождений'],['Обслуживать покупателей по стандартам','Соблюдены этапы сервиса и корректно обработаны обращения'],['Поддерживать стандарты выкладки','Зона ответственности соответствует планограмме и ценники актуальны'],['Пройти допуск к самостоятельной смене','Руководитель подтвердил готовность по чеклисту']],
+    production:[['Безопасно выполнять производственную операцию','Операция выполнена по технологической карте без нарушений ОТ'],['Подтвердить качество выпуска','Результат соответствует нормам ОТК в трёх последовательных циклах'],['Освоить оборудование участка','Сотрудник самостоятельно выполняет запуск, остановку и переналадку'],['Выполнять сменное задание','Достигнут норматив без роста брака и простоев']],
+    office:[['Самостоятельно выполнить рабочий кейс','Результат принят внутренним заказчиком без критических доработок'],['Освоить регламенты и инструменты роли','Все обязательные операции выполняются в рабочих системах'],['Выстроить взаимодействие со смежными командами','Согласованы зоны ответственности и рабочий ритм'],['Подготовить план первых 90 дней','План согласован руководителем и содержит измеримые результаты']],
+    management:[['Настроить управленческий ритм команды','Регулярные встречи и контроль задач проходят по согласованному расписанию'],['Сформировать цели команды','Цели связаны с метриками подразделения и назначены владельцы'],['Провести первые встречи один на один','Собраны ожидания и планы развития прямых подчинённых'],['Принять самостоятельное управленческое решение','Решение основано на данных и согласовано с заинтересованными сторонами']]
+  };
+  const goalElements = Object.entries(goalBlueprints).flatMap(([domain,rows])=>rows.map(([title,description],index)=>({
+    id:`prod-${++serial}`,type:'goal',title,description,domain,domainName:domains[domain][0],audiences:domains[domain][1],stage:index<2?'practice':'final-check',source:index%2?'Каталог клиента':'Шаблон Skillaz',duration:0,tags:[domain,'цель',...domains[domain][1]]
+  })));
+  const checkpointBlueprints = {
+    logistics:['Разбор первых маршрутов','Контроль самостоятельной работы в WMS','Допуск к самостоятельной доставке'],
+    retail:['Проверка первой смены','Разбор кассы, сервиса и выкладки','Допуск к самостоятельной смене'],
+    production:['Проверка безопасного старта','Разбор практики на оборудовании','Допуск к самостоятельной операции'],
+    office:['Проверка первых результатов','Разбор рабочего кейса','Итоги первых 90 дней'],
+    management:['Проверка управленческого старта','Разбор целей и ритма команды','Итоги первых управленческих решений']
+  };
+  const checkpointElements = Object.entries(checkpointBlueprints).flatMap(([domain,rows])=>rows.map((title,index)=>({
+    id:`prod-${++serial}`,type:'checkpoint',title,description:`${['Проверить старт, доступы и первые действия','Обсудить практику, сложности и поддержку','Подтвердить готовность и согласовать дальнейший план'][index]}. Пульс: уверенность в задачах роли, препятствия и необходимая поддержка.`,domain,domainName:domains[domain][0],audiences:domains[domain][1],stage:['first-week','practice','final-check'][index],source:'Каталог КТ Skillaz',duration:30,tags:[domain,'контрольная точка','повестка','пульс',...domains[domain][1]]
+  })));
+
   const roleBlueprints = [
     ['Наставник','functional','Обучает на рабочем месте и подтверждает практику'],
     ['Эксперт по процессу','functional','Проверяет профессиональные знания и рабочие кейсы'],
@@ -114,7 +135,7 @@
 
   const enterpriseRoles = window.SkillazReferenceData?.businessRoles || [];
   window.SkillazProductionCatalog = {
-    elements:[...universalElements,...elements],
+    elements:[...universalElements,...goalElements,...checkpointElements,...elements],
     businessRoles:[...enterpriseRoles,...businessRoles],
     relevantElements(query, limit=28){ return relevant(this.elements, query, limit); },
     relevantRoles(query, limit=24){
@@ -122,6 +143,6 @@
       const fallback = relevant(this.businessRoles, query, limit);
       return [...contextual,...fallback.filter(role=>!contextual.some(item=>item.id===role.id))].slice(0,limit);
     },
-    stats:{ elements:universalElements.length + elements.length, roles:businessRoles.length + enterpriseRoles.length }
+    stats:{ elements:universalElements.length + goalElements.length + checkpointElements.length + elements.length, roles:businessRoles.length + enterpriseRoles.length }
   };
 })();
