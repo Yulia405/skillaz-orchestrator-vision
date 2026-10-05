@@ -95,8 +95,8 @@
     const generated=source.find(item=>item.id===data.id)||(window.SkillazProductionCatalog?.elements||[]).find(item=>item.id===data.id)||{};
     const placements=kind==='goal'?state.goalPlacements:state.ktPlacements;
     const list=placements[key]||=[];
-    if(list.some(item=>item.id===data.id))return;
-    list.push({...generated,id:data.id||`${kind}-${Date.now()}`,type:kind==='goal'?'goal':'checkpoint',title:data.title,meta:data.meta,result:generated.result||generated.description||data.meta,agenda:generated.agenda||generated.description||data.meta,pulse:generated.pulse||'Насколько уверенно вы выполняете задачи роли?; Что мешает двигаться дальше?; Какая поддержка нужна?',day:generated.day||30,links:[...(generated.links||generated.linked||[])]});
+    const id=list.some(item=>item.id===data.id)?`${data.id}-copy-${Date.now()}-${Math.random().toString(36).slice(2,6)}`:data.id||`${kind}-${Date.now()}`;
+    list.push({...JSON.parse(JSON.stringify(generated)),id,sourceId:generated.sourceId||data.id,type:kind==='goal'?'goal':'checkpoint',title:data.title,meta:data.meta,result:generated.result||generated.description||data.meta,agenda:generated.agenda||generated.description||data.meta,pulse:generated.pulse||'Насколько уверенно вы выполняете задачи роли?; Что мешает двигаться дальше?; Какая поддержка нужна?',day:generated.day||30,links:kind==='goal'?[...(generated.links||generated.linked||[])]:[]});
   };
   const linkGoalToItem = (key,templateId,cell,itemId) => {
     const template=(state.goalPlacements[key]||[]).find(row=>row.id===templateId);
@@ -189,7 +189,6 @@
     <header><b>${state.activeTemplateScenario ? `Добавить в ${state.activeTemplateScenario.kind==='goal'?'сценарий целей':'сценарий КТ'}` : 'Добавить в процесс'}</b><button class="btn icon-only small" data-clean-action="close-add">×</button></header>
     ${state.activeTemplateScenario?`<div class="active-scenario-hint"><span>Выбран сценарий</span><b>${safe4(state.activeTemplateScenario.label||'Текущий сценарий')}</b><button data-clear-active-scenario>Сбросить</button></div>`:''}
     <button data-clean-element-type="task"><i>✓</i><span><b>Задача</b><small>Действие сотрудника или участника</small></span></button>
-    <button data-clean-element-type="action"><i>⚙</i><span><b>Системное действие</b><small>Выполняется автоматически</small></span></button>
     <button data-clean-element-type="course"><i>▣</i><span><b>Курс / программа</b><small>Объект из LMS</small></span></button>
     <button data-clean-element-type="article"><i>≡</i><span><b>Статья</b><small>Материал из Базы знаний</small></span></button>
     <button data-clean-element-type="file"><i>⇩</i><span><b>Файл</b><small>PDF, документ или рабочая памятка</small></span></button>
@@ -197,7 +196,7 @@
     <button data-clean-element-type="survey"><i>◉</i><span><b>Опрос</b><small>Пульс или обратная связь</small></span></button>
     <button data-open-assessment-catalog><i>▤</i><span><b>Оценочный лист</b><small>Практическая проверка в этапе или цели</small></span></button><button data-clean-element-type="goal"><i>◎</i><span><b>Цель</b><small>Шаблон цели из каталога</small></span></button>
     <button data-clean-element-type="checkpoint"><i>◆</i><span><b>Контрольная точка</b><small>Шаблон КТ из каталога</small></span></button>
-    <button data-action="addBranch"><i>◇</i><span><b>Условие</b><small>Настроить вариант пути</small></span></button>
+    <p class="add-routing-hint">Условия и автоматические действия настраиваются в карточке элемента: «Если выполнен / не выполнен».</p>
     <button class="clean-ai-pick" data-clean-action="ai-elements"><i>✦</i><span><b>Подобрать с AI</b><small>Агент предложит элементы из разрешённых каталогов</small></span></button>
     <div class="clean-structure-actions"><span>Структура процесса</span><button data-action="addStage">＋ Этап</button><button data-action="addBranch">＋ Ветка</button></div>
   </div>`;

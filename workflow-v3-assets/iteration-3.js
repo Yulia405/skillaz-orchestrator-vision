@@ -58,7 +58,7 @@
   const clone = value => JSON.parse(JSON.stringify(value));
   const draftSnapshot = () => ({
     stages:clone(stages), branches:clone(branches), items:clone(state.items || {}), extras:clone(extras || {}),
-    state:clone({processTitle:state.processTitle,assistantAnswers:state.assistantAnswers,manualLaunch:state.manualLaunch,launchConfigured:state.launchConfigured,scopeSelections:state.scopeSelections,scopeSelectionConfigured:state.scopeSelectionConfigured,launchScope:state.launchScope,newRoles:state.newRoles,coordinatorRule:state.coordinatorRule,generatedProcess:state.generatedProcess,generatedAiProcess:state.generatedAiProcess,goalScenarios:state.goalScenarios,ktScenarios:state.ktScenarios,outcomeRules:state.outcomeRules,generatedGoalTemplates:state.generatedGoalTemplates,generatedKtTemplates:state.generatedKtTemplates,goalPlacements:state.goalPlacements,ktPlacements:state.ktPlacements,activeTemplateScenario:state.activeTemplateScenario}),
+    state:clone({processTitle:state.processTitle,assistantAnswers:state.assistantAnswers,manualLaunch:state.manualLaunch,launchConfigured:state.launchConfigured,scopeSelections:state.scopeSelections,scopeSelectionConfigured:state.scopeSelectionConfigured,launchScope:state.launchScope,newRoles:state.newRoles,coordinatorRule:state.coordinatorRule,generatedProcess:state.generatedProcess,generatedAiProcess:state.generatedAiProcess,goalScenarios:state.goalScenarios,ktScenarios:state.ktScenarios,outcomeRules:state.outcomeRules,elementRoutes:state.elementRoutes,workflowNotifications:state.workflowNotifications,generatedGoalTemplates:state.generatedGoalTemplates,generatedKtTemplates:state.generatedKtTemplates,goalPlacements:state.goalPlacements,ktPlacements:state.ktPlacements,activeTemplateScenario:state.activeTemplateScenario}),
     ai:typeof aiState === 'object' ? clone({goals:aiState.goals,sessions:aiState.sessions,creator:aiState.creator}) : null
   });
   const persistDraft = () => {
@@ -77,7 +77,7 @@
     branches.splice(0,branches.length,...clone(saved.branches || []));
     state.items = clone(saved.items || {});
     extras = clone(saved.extras || {});
-    Object.assign(state,clone(saved.state || {}),{screen:'editor',step:'base',view:'canvas',layer:'process',newWorkflow:true,workflow:id,demoDraftId:id,paletteOpen:false,rolePickerOpen:false,participantAssistantOpen:false});
+    Object.assign(state,{elementRoutes:{},workflowNotifications:{},routeEditor:null,objectEditor:null},clone(saved.state || {}),{screen:'editor',step:'base',view:'canvas',layer:'process',newWorkflow:true,workflow:id,demoDraftId:id,paletteOpen:false,rolePickerOpen:false,participantAssistantOpen:false});
     ensureCommonBranch();
     if (saved.ai && typeof aiState === 'object') Object.assign(aiState,clone(saved.ai));
     render();
@@ -149,7 +149,7 @@
       const query=branch.id==='base'?processContext:`${branch.name} ${branch.desc || ''} ${(branch.conditions||[]).join(' ')}`;
       const family=catalog.resolveJobContext?.(query)?.key;
       const matches = catalog.relevantElements(`${query} ${stage.name}`, 80)
-        .filter(row => ['course','article','task','test','survey','action','meeting'].includes(row.type))
+        .filter(row => ['course','article','task','test','survey','meeting'].includes(row.type))
         .filter(row=>branch.id==='base'?row.domain==='universal':row.domain===family||row.domain==='universal');
       const stageText=stage.name.toLowerCase();
       const preferredTypes=/пульс|обратн|адаптац/.test(stageText)?['survey','meeting']:/провер|оценк|допуск|итог/.test(stageText)?['test','task']:/практик|самостоятель|трениров/.test(stageText)?['task','article']:/доступ|подготов|до старт|первый день/.test(stageText)?['task','article']:['course','article'];
@@ -276,7 +276,7 @@
       const seenItems=new Set();
       (generated.items||[]).forEach((item,index)=>{
         const source=window.SkillazProductionCatalog?.elements.find(row=>row.id===item.sourceId);
-        if(['goal','checkpoint'].includes(item.type)||['goal','checkpoint'].includes(source?.type))return;
+        if(['goal','checkpoint','action'].includes(item.type)||['goal','checkpoint'].includes(source?.type))return;
         const branchId = branches.some(branch=>branch.id===item.branchId) ? item.branchId : branches[0].id;
         const stageId = stages.some(stage=>stage.id===item.stageId) ? item.stageId : stages[0].id;
         const cell = `${branchId}-${stageId}`;
@@ -392,6 +392,7 @@
   };
   const originalDraftRender = render;
   let draftSaveTimer = 0;
+  window.addEventListener('pagehide', persistDraft);
   render = function () {
     clearTimeout(draftSaveTimer);
     if (state.demoDraftId && state.newWorkflow) draftSaveTimer = setTimeout(persistDraft,80);

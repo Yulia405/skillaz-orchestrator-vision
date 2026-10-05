@@ -172,7 +172,7 @@ async function aiGenerate() {
       },
       history:[], catalog:window.SkillazLiveAI.context(query)
     });
-    const proposals = Array.isArray(result.proposals) ? result.proposals.filter(proposal=>proposal?.title) : [];
+    const proposals = Array.isArray(result.proposals) ? result.proposals.filter(proposal=>proposal?.title&&(aiState.mode!=='elements'||proposal.type!=='action')) : [];
     if (proposals.length) {
       aiState.proposals = proposals.map((proposal,index) => {
         const branchId = scope.includes(proposal.branchId) ? proposal.branchId : scope[index % scope.length];
@@ -219,7 +219,7 @@ function supplementElementProposals(current, scope, selectedStages, query) {
   let serial = 0;
   const addForCell = (branchId,stageId) => {
     const branch=aiBranch(branchId),family=branchJobContext(branch)?.key;
-    const branchRows=catalog.relevantElements(contextualDescription(branch),80).filter(row=>['course','article','file','task','test','survey','action','meeting'].includes(row.type)).filter(row=>branchId==='base'?row.domain==='universal':row.domain===family||row.domain==='universal');
+    const branchRows=catalog.relevantElements(contextualDescription(branch),80).filter(row=>['course','article','file','task','test','survey','meeting'].includes(row.type)).filter(row=>branchId==='base'?row.domain==='universal':row.domain===family||row.domain==='universal');
     const existing = new Set([...(state.items[`${branchId}-${stageId}`]||[]).map(item=>item.title),...result.filter(item=>item.branchId===branchId&&item.stageId===stageId).map(item=>item.title)]);
     const row = branchRows.find(candidate=>!existing.has(candidate.title));
     if (!row) return;

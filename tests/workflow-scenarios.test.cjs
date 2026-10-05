@@ -147,3 +147,41 @@ test('AI keeps its destination when another scenario is selected during review',
   assert.equal(ctx.state.goalPlacements['goal-manual-1'].length,1);
   assert.equal(ctx.state.goalPlacements['goal-manual-0'],undefined);
 });
+
+test('a goal catalog template can be added again as an independent editable instance',()=>{
+  const {ctx}=appHarness();ctx.state.goalScenarios=[{branches:['cashier']}];
+  ctx.state.generatedGoalTemplates=[{id:'template',title:'Закрыть период',subgoals:[{title:'Сверка'}]}];
+  const api=ctx.window.SkillazTemplateAPI;
+  api.addTemplate('goal','goal-manual-0',{id:'template',title:'Закрыть период'});
+  api.addTemplate('goal','goal-manual-0',{id:'template',title:'Закрыть период'});
+  const [a,b]=ctx.state.goalPlacements['goal-manual-0'];
+  assert.notEqual(a.id,b.id);a.subgoals[0].title='Первый квартал';assert.equal(b.subgoals[0].title,'Сверка');
+});
+
+function routingHarness(){const app=appHarness();vm.runInContext(fs.readFileSync(path.join(root,'workflow-v3-assets/workflow-routing.js'),'utf8'),app.ctx);return app;}
+
+test('failed evaluation schedules training and escalation while success keeps the main path',()=>{
+  const {ctx}=routingHarness(),api=ctx.window.SkillazRouting;
+  const rules=[{when:'failed',action:'catalog',target:'training-finance'},{when:'failed',action:'escalate',recipient:'Руководитель'}];
+  assert.equal(api.validate(rules,'base-day1','evaluation'),'');
+  assert.deepEqual(Array.from(api.evaluate(rules,'failed'),r=>r.action),['catalog','escalate']);
+  assert.equal(api.evaluate(rules,'passed').length,0);
+  assert.equal(api.evaluate(rules,'overdue').length,0);
+});
+
+test('element routes use exact placement and reject missing or self-referencing targets',()=>{
+  const {ctx}=routingHarness(),api=ctx.window.SkillazRouting;
+  ctx.state.items={'base-day1':[{id:'same',title:'Общий курс'}],'cashier-day1':[{id:'same',title:'Курс кассира'}]};
+  ctx.state.elementRoutes={'base-day1::same':[{when:'passed',action:'continue'}],'cashier-day1::same':[{when:'failed',action:'repeat',limit:2}]};
+  assert.equal(api.rulesFor('base-day1','same')[0].action,'continue');
+  assert.equal(api.rulesFor('cashier-day1','same')[0].action,'repeat');
+  assert.ok(api.validate([{when:'failed',action:'assign',target:'base-day1::same'}],'base-day1','same'));
+  assert.equal(api.validate([{when:'failed',action:'assign',target:'cashier-day1::same'}],'base-day1','same'),'');
+  assert.ok(api.validate([{when:'failed',action:'catalog',target:'deleted'}],'base-day1','same'));
+});
+
+test('publication uses the current process audience and launch settings',()=>{
+  const {ctx}=routingHarness();ctx.state.newWorkflow=true;ctx.state.processTitle='Адаптация бухгалтера';ctx.state.assistantAnswers={audience:'Бухгалтеры · Все регионы присутствия',event:'Сотрудник вышел',timing:'В момент события'};ctx.state.launchScope={label:'Все регионы присутствия'};
+  ctx.branches=[{id:'base',name:'Общий контур'},{id:'accountant',name:'Бухгалтер',conditions:['Должность: бухгалтер']}];
+  const html=ctx.finalPage();assert.match(html,/Бухгалтеры/);assert.match(html,/Сотрудник вышел/);assert.doesNotMatch(html,/доставка|За 5 дней/);
+});

@@ -219,8 +219,12 @@
       if (action === 'apply-scope-picker') {
         event.preventDefault();
         const checked = [...document.querySelectorAll('.scope-picker-card [data-scope-value]:checked')];
-        const ids = checked.map(input=>input.dataset.scopeValue);
-        const labels = [...new Set(checked.map(input=>input.dataset.scopeLabel).filter(Boolean))];
+        let ids = checked.map(input=>input.dataset.scopeValue);
+        let labels = [...new Set(checked.map(input=>input.dataset.scopeLabel).filter(Boolean))];
+        if(state.scopePicker==='location'){
+          if(ids.includes('all-regions')){ids=['all-regions'];labels=['Все регионы присутствия'];}
+          state.launchScope={confirmed:ids.length>0,allRegions:ids.includes('all-regions'),locationIds:ids,label:labels.join(', ')};
+        }
         state.scopeSelections[state.scopePicker] = ids;
         state.scopeSelectionConfigured||={};state.scopeSelectionConfigured[state.scopePicker]=true;
         const prefix = {org:'Структура',role:'Должности',group:'Группы',location:'Территория'}[state.scopePicker];
