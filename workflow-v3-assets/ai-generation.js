@@ -86,6 +86,9 @@ const aiCatalog = {
 const escapeAi = value => String(value ?? '').replace(/[&<>"']/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' })[c]);
 const branchProfile = branch => {
   const text = [branch?.name, branch?.desc, ...(branch?.conditions || []), ...(branch?.meta || []),state.assistantAnswers?.audience,state.assistantAnswers?.audienceIntent,state.assistantAnswers?.result,state.processTitle,...(state.assistantLiveHistory||[]).filter(item=>item.role==='user').map(item=>item.text)].filter(Boolean).join(' ').toLowerCase();
+  const directoryProfile = branchJobContext(branch)?.baseProfile;
+  if (directoryProfile === 'logistics') return /курьер|водител|достав|маршрут/.test(text) ? 'delivery' : 'warehouse';
+  if (directoryProfile && directoryProfile !== 'general') return directoryProfile;
   if (/курьер|достав|водител|маршрут/.test(text)) return 'delivery';
   if (/склад|кладов|сортиров|консолидац/.test(text)) return 'warehouse';
   if (/кассир|розниц|пвз|клиентск|торгов/.test(text)) return 'retail';
@@ -95,8 +98,16 @@ const branchProfile = branch => {
   if (/руковод|менеджер|директор/.test(text)) return 'manager';
   return 'general';
 };
+const branchJobContext = branch => {
+  const resolver=window.SkillazProductionCatalog?.resolveJobContext;
+  if(!resolver)return null;
+  const local=[branch?.name,branch?.desc,...(branch?.conditions||[])].filter(Boolean).join(' ');
+  const localContext=resolver(local);
+  return branch?.id!=='base'&&localContext.key!=='office'?localContext:resolver([local,state.assistantAnswers?.audience,state.assistantAnswers?.result,state.processTitle].filter(Boolean).join(' '));
+};
 const aiBranch = id => branches.find(branch => branch.id === id);
 const aiStage = id => stages.find(stage => stage.id === id);
+const aiItemContext = cell => [branches.find(branch=>String(cell).startsWith(`${branch.id}-`))?.name,stages.find(stage=>String(cell).endsWith(`-${stage.id}`))?.name].filter(Boolean).join(' · ');
 const isSkipped = (branchId, stageId) => state.skips.includes(`${branchId}-${stageId}`);
 const contextualDescription = branch => [branch.name, branch.desc, ...(branch.conditions || [])].filter(Boolean).join(' · ');
 const selectedValues = (selector, root = document) => $$(selector, root).filter(input => input.checked).map(input => input.value);
@@ -109,6 +120,8 @@ function aiOpen(mode) {
   aiState.mode = mode;
   aiState.step = 'configure';
   aiState.proposals = [];
+  aiState.liveFallback = false;
+  state.paletteOpen = false;
   const scenarioKind = mode === 'goals' ? 'goal' : mode === 'checkpoints' ? 'kt' : '';
   const scenarioIndex = scenarioKind && state.activeTemplateScenario?.kind === scenarioKind ? Number(String(state.activeTemplateScenario.key||'').split('-').pop()) : NaN;
   const scenarioCollection = scenarioKind === 'goal' ? (state.goalScenarios||[]) : scenarioKind === 'kt' ? (state.ktScenarios||[]) : [];
@@ -155,20 +168,21 @@ async function aiGenerate() {
       },
       history:[], catalog:window.SkillazLiveAI.context(query)
     });
-    const proposals = Array.isArray(result.proposals) ? result.proposals : [];
+    const proposals = Array.isArray(result.proposals) ? result.proposals.filter(proposal=>proposal?.title) : [];
     if (proposals.length) {
       aiState.proposals = proposals.map((proposal,index) => {
-        const branchId = proposal.branchId || scope[index % scope.length];
-        const stageId = proposal.stageId || selectedStages[index % Math.max(1,selectedStages.length)];
+        const branchId = scope.includes(proposal.branchId) ? proposal.branchId : scope[index % scope.length];
+        const stageId = selectedStages.includes(proposal.stageId) ? proposal.stageId : selectedStages[index % Math.max(1,selectedStages.length)];
         const available = Object.entries(state.items).filter(([key])=>key.startsWith(`${branchId}-`)||key.startsWith('base-')).flatMap(([cell,items])=>items.map(item=>({...item,cell})));
-        const candidates = available.filter(item=>/task|course|assessment/.test(item.type)).slice(-6).map(item=>({id:item.id,title:item.title,cell:item.cell}));
+        const candidates = available.filter(item=>/task|course|assessment|test/.test(item.type)).map(item=>({id:item.id,title:item.title,cell:item.cell}));
+        const linked=candidates.filter(item=>(proposal.linkedItemIds||[]).includes(item.id));
         return {
-          id:proposal.id||`live-${aiState.mode}-${index}`, branchId, stageId,
+          id:`live-${aiState.mode}-${Date.now()}-${index}`, branchId, stageId,
           type:proposal.type||'task', title:proposal.title, source:proposal.sourceId?'Каталог клиента':'AI · новый черновик',
           reason:proposal.reason||result.message||'Подобрано по контексту процесса.', outcomes:proposal.outcomes||[],
           result:proposal.result||proposal.title, day:Number(proposal.day)||Math.min(aiPlanEnd(),30),
           agenda:proposal.agenda||'Проверить результат, сложности и необходимую поддержку.',
-          pulse:proposal.pulse||'Насколько уверенно сотрудник выполняет задачи роли?', candidates, linked:candidates.slice(0,2)
+          pulse:proposal.pulse||'Насколько уверенно сотрудник выполняет задачи роли?', candidates, linked
         };
       });
       if (aiState.mode === 'elements') aiState.proposals = supplementElementProposals(aiState.proposals, scope, selectedStages, query);
@@ -184,6 +198,8 @@ async function aiGenerate() {
     aiState.liveFallback = true;
   }
   if (aiState.mode === 'elements') aiState.proposals = supplementElementProposals(aiState.proposals, scope, selectedStages, [...scope.map(id=>aiBranch(id)?.name||''),...selectedStages.map(id=>aiStage(id)?.name||'')].join(' '));
+  const generationId = Date.now();
+  aiState.proposals = aiState.proposals.map((proposal,index)=>({...proposal,id:`proposal-${aiState.mode}-${generationId}-${index}`}));
   if (!aiState.proposals.length) return $('#aiError').textContent = 'Для этих условий новых предложений нет. Измените ветки, этапы или источники.';
   aiState.step = 'review';
   render();
@@ -194,12 +210,13 @@ function supplementElementProposals(current, scope, selectedStages, query) {
   if (!catalog || !scope.length || !selectedStages.length) return current;
   const result = [...current];
   const target = Math.min(24, Math.max(scope.length * selectedStages.length, 12));
-  const rows = catalog.relevantElements(query, 70).filter(row => ['course','article','task','test','survey','action','meeting'].includes(row.type));
   const mappedType = type => ({test:'assessment',action:'task',meeting:'task'}[type] || type);
   let serial = 0;
   const addForCell = (branchId,stageId) => {
+    const branch=aiBranch(branchId),family=branchJobContext(branch)?.key;
+    const branchRows=catalog.relevantElements(contextualDescription(branch),80).filter(row=>['course','article','file','task','test','survey','action','meeting'].includes(row.type)).filter(row=>branchId==='base'?row.domain==='universal':row.domain===family||row.domain==='universal');
     const existing = new Set([...(state.items[`${branchId}-${stageId}`]||[]).map(item=>item.title),...result.filter(item=>item.branchId===branchId&&item.stageId===stageId).map(item=>item.title)]);
-    const row = rows.find(candidate=>!existing.has(candidate.title));
+    const row = branchRows.find(candidate=>!existing.has(candidate.title));
     if (!row) return;
     result.push({id:`live-catalog-${branchId}-${stageId}-${serial++}`,branchId,stageId,type:mappedType(row.type),title:row.title,source:row.source,sourceId:row.id,reason:'Подобрано из каталога по аудитории ветки и назначению этапа.',outcomes:[]});
   };
@@ -219,7 +236,13 @@ function aiElementProposals() {
   return aiState.scope.flatMap(branchId => {
     const branch = aiBranch(branchId), profile = branchProfile(branch);
     const available = aiState.stages.filter(stageId => !isSkipped(branchId, stageId));
-    return aiCatalog[profile].elements.filter((record) => sourceAllowed[record[2]]).flatMap((record, index) => {
+    const job=branchJobContext(branch);
+    const records=job?.key!=='office'&&job?.tasks?.length?[
+      ['course',`Рабочие инструменты и стандарты: ${job.name}`,'Каталог курсов'],
+      ['article',`Регламенты и критерии качества: ${job.name}`,'База знаний'],
+      ...job.tasks.map(title=>['task',title,'Шаблоны задач'])
+    ]:aiCatalog[profile].elements;
+    return records.filter((record) => sourceAllowed[record[2]]).flatMap((record, index) => {
       const stageId = available[Math.min(index, available.length - 1)];
       if (!stageId || (state.items[`${branchId}-${stageId}`] || []).some(item => item.title === record[1])) return [];
       return [{ id:`el-${branchId}-${index}`, branchId, stageId, type:record[0], title:record[1], source:record[2], reason:aiState.context.history ? aiCatalog[profile].signal : 'Подобрано по условиям должности и подразделения ветки.' }];
@@ -232,11 +255,12 @@ function aiGoalProposals() {
     delivery:['Соблюдать стандарт безопасной доставки','Выполнить 10 маршрутов без критических отклонений и нарушений чеклиста'],warehouse:['Самостоятельно закрывать складскую смену','Выполнить приём, консолидацию и передачу без ошибок'],retail:['Пройти допуск к самостоятельной смене','Закрыть смену без расхождений и нарушений стандартов сервиса'],marketing:['Подготовить и защитить первую кампанию','Согласовать материалы, запустить кампанию и представить результаты по метрикам'],production:['Подтвердить качество производственной операции','Выполнить три последовательных цикла по нормам качества и безопасности'],expert:['Применить инструменты роли в рабочем кейсе','Получить приёмку результата внутренним заказчиком без критических доработок'],manager:['Настроить управленческий ритм команды','Согласовать цели, метрики и регулярные встречи с командой'],general:['Применить знания в самостоятельной задаче','Получить подтверждение результата от руководителя или наставника']
   };
   return aiState.scope.flatMap((branchId, index) => {
-    const branch = aiBranch(branchId), profile = branchProfile(branch);
+    const branch = aiBranch(branchId), profile = branchProfile(branch), jobContext = branchJobContext(branch);
     const available = Object.entries(state.items).filter(([key]) => key.startsWith(`${branchId}-`) || key.startsWith('base-'))
       .flatMap(([key, items]) => items.map(item => ({ ...item, cell:key })));
-    const candidates = available.filter(item => /task|course|assessment/.test(item.type)).slice(-6).map(item => ({ id:item.id, title:item.title, cell:item.cell }));
-    const goals=[aiCatalog[profile].goal,secondary[profile]||secondary.general];
+    const candidates = available.filter(item => /task|course|assessment|test/.test(item.type)).map(item => ({ id:item.id, title:item.title, cell:item.cell }));
+    const contextualGoals=(jobContext?.goals||[]).slice(0,2);
+    const goals=contextualGoals.length ? contextualGoals : [aiCatalog[profile].goal,secondary[profile]||secondary.general];
     return goals.map((goal,goalIndex)=>({ id:`goal-${branchId}-${index}-${goalIndex}`, branchId, title:goal[0], result:goal[1], day:Math.min(aiPlanEnd(),goalIndex?45:30), source:'Каталог целей', candidates, linked:candidates.slice(goalIndex,goalIndex+2), reason:aiState.context.history ? aiCatalog[profile].signal : 'Подобрано по должности и подразделению ветки.' }));
   });
 }
@@ -254,9 +278,12 @@ function aiKtProposals() {
     general:['Проверить выполнение рабочего кейса, качество результата и взаимодействие со смежными командами.','Насколько уверенно вы выполняете задачи роли?; Понятны ли критерии качества?; Что мешает работать самостоятельно?']
   };
   return aiState.scope.flatMap((branchId,branchIndex)=>{
-    const branch=aiBranch(branchId),profile=branchProfile(branch),texts=content[profile]||content.general;
-    return baseDays.slice(0,3).map((day,index)=>({id:`kt-${branchId}-${day}`,branchId,day,title:`${['Первые результаты','Практика и поддержка','Готовность к самостоятельной работе'][index]} · ${branch?.name||'роль'}`,
-      agenda:texts[0],pulse:texts[1],participants:['Сотрудник','Руководитель','Наставник'],
+    const branch=aiBranch(branchId),profile=branchProfile(branch),texts=content[profile]||content.general,jobContext=branchJobContext(branch);
+    const checkpointNames=jobContext?.checkpoints?.length?jobContext.checkpoints:['Первые результаты','Практика и поддержка','Готовность к самостоятельной работе'];
+    const taskNames=(jobContext?.tasks||[]).slice(0,3).join(', ');
+    const agenda=taskNames?`Проверить практику по задачам: ${taskNames}; разобрать сложности, качество результата и необходимую поддержку.`:texts[0];
+    return baseDays.slice(0,3).map((day,index)=>({id:`kt-${branchId}-${day}`,branchId,day,title:`${checkpointNames[index]||checkpointNames.at(-1)} · ${branch?.name||'роль'}`,
+      agenda,pulse:taskNames?`Насколько уверенно вы выполняете задачи: ${taskNames}?; Какие рабочие инструменты или стандарты пока вызывают сложности?; Какая поддержка нужна для самостоятельной работы?`:texts[1],participants:['Сотрудник','Руководитель','Наставник'],
       reason:aiState.context.history?'Повестка учитывает должность ветки и типичные точки затруднений похожих планов.':'Сформировано по должности выбранного сценария КТ.'}));
   });
 }
@@ -267,7 +294,7 @@ function aiApply() {
   const proposals = aiState.proposals.filter(proposal => checked.includes(proposal.id)).map(proposal => {
     const row = $(`[data-ai-proposal="${proposal.id}"]`);
     return { ...proposal, title:row.querySelector('[data-ai-title]').value.trim() || proposal.title,
-      ...(aiState.mode === 'goals' ? { result:row.querySelector('[data-ai-result]').value.trim() || proposal.result, day:Number(row.querySelector('[data-ai-day]').value), linked:proposal.candidates.filter(item => selectedValues('input[data-ai-link]', row).includes(item.id)) } : {}),
+      ...(aiState.mode === 'goals' ? { result:row.querySelector('[data-ai-result]').value.trim() || proposal.result, day:Number(row.querySelector('[data-ai-day]').value), linked:proposal.candidates.filter(item => selectedValues('input[data-ai-link]', row).includes(`${item.cell}::${item.id}`)) } : {}),
       ...(aiState.mode === 'checkpoints' ? { day:Number(row.querySelector('[data-ai-day]').value), agenda:row.querySelector('[data-ai-agenda]').value.trim(), pulse:row.querySelector('[data-ai-pulse]').value.trim() } : {}) };
   });
   if (proposals.some(proposal => (proposal.day !== undefined && (!Number.isInteger(proposal.day) || proposal.day < 1 || proposal.day > aiPlanEnd())) || (aiState.mode === 'checkpoints' && (!proposal.agenda || !proposal.pulse)))) {
@@ -285,12 +312,26 @@ function aiApply() {
   } else if (aiState.mode === 'goals') {
     state.generatedGoalTemplates ||= [];
     proposals.forEach((proposal,index)=>{const id=proposal.id||`ai-goal-${Date.now()}-${index}`;if(!state.generatedGoalTemplates.some(item=>item.id===id))state.generatedGoalTemplates.push({...proposal,id,type:'goal',links:proposal.linked||[]});});
+    state.goalScenarios ||= [];
+    if (!state.goalScenarios.length) state.goalScenarios.push({branches:[...aiState.scope],creator:'Администратор',timing:'При назначении плана'});
+    const goalIndex = state.activeTemplateScenario?.kind === 'goal' ? Number(String(state.activeTemplateScenario.key).split('-').pop()) : 0;
+    const goalKey = `goal-manual-${Number.isInteger(goalIndex) && state.goalScenarios[goalIndex] ? goalIndex : 0}`;
+    state.goalPlacements ||= {}; state.goalPlacements[goalKey] ||= [];
+    state.generatedGoalTemplates.forEach(template=>{if(proposals.some(proposal=>proposal.id===template.id)&&!state.goalPlacements[goalKey].some(item=>item.id===template.id))state.goalPlacements[goalKey].push({...template,links:[...(template.links||[])]});});
+    state.activeTemplateScenario={kind:'goal',key:goalKey,label:'Сценарий целей'}; state.catalogTargetScenario=goalKey;
     state.cleanCatalogType = 'goal'; state.cleanPaletteOpened = true; state.paletteOpen = true;
     state.generatedAiProcess ||= {};
     state.generatedAiProcess.goals = [...state.generatedGoalTemplates];
   } else {
     state.generatedKtTemplates ||= [];
     proposals.forEach((proposal,index)=>{const id=proposal.id||`ai-kt-${Date.now()}-${index}`;if(!state.generatedKtTemplates.some(item=>item.id===id))state.generatedKtTemplates.push({...proposal,id,type:'checkpoint'});});
+    state.ktScenarios ||= [];
+    if (!state.ktScenarios.length) state.ktScenarios.push({branches:[...aiState.scope],creator:'Руководитель',timing:'По срокам шаблонов КТ'});
+    const ktIndex = state.activeTemplateScenario?.kind === 'kt' ? Number(String(state.activeTemplateScenario.key).split('-').pop()) : 0;
+    const ktKey = `kt-manual-${Number.isInteger(ktIndex) && state.ktScenarios[ktIndex] ? ktIndex : 0}`;
+    state.ktPlacements ||= {}; state.ktPlacements[ktKey] ||= [];
+    state.generatedKtTemplates.forEach(template=>{if(proposals.some(proposal=>proposal.id===template.id)&&!state.ktPlacements[ktKey].some(item=>item.id===template.id))state.ktPlacements[ktKey].push({...template});});
+    state.activeTemplateScenario={kind:'kt',key:ktKey,label:'Сценарий КТ'}; state.catalogTargetScenario=ktKey;
     state.cleanCatalogType = 'checkpoint'; state.cleanPaletteOpened = true; state.paletteOpen = true;
     state.generatedAiProcess ||= {};
     state.generatedAiProcess.checkpoints = [...state.generatedKtTemplates];
@@ -299,7 +340,7 @@ function aiApply() {
   const mode = aiState.mode;
   aiState.mode = null;
   render();
-  toast(`${count} ${mode === 'elements' ? 'элементов добавлено на канву' : mode === 'goals' ? 'целей создано — перетащите их в сценарий' : 'контрольных точек создано — перетащите их в сценарий'}`);
+  toast(`${count} ${mode === 'elements' ? 'элементов добавлено на канву' : mode === 'goals' ? 'целей добавлено в выбранный сценарий' : 'контрольных точек добавлено в выбранный сценарий'}`);
 }
 
 function aiModalMarkup() {
@@ -308,7 +349,7 @@ function aiModalMarkup() {
   const title = mode === 'elements' ? 'Наполнить этапы с AI' : mode === 'goals' ? 'Предложить цели с AI' : 'Предложить контрольные точки с AI';
   const configure = aiState.step === 'configure';
   return `<div class="modal ai-modal"><section class="dialog ai-dialog" role="dialog" aria-modal="true" aria-label="${title}">
-    <header class="dialog-head"><div><span class="tag blue">AI · живой подбор</span><h2>${title}</h2></div><button class="btn icon-only" data-ai-close title="Закрыть">×</button></header>
+    <header class="dialog-head"><div><span class="tag blue">${aiState.liveFallback?'Подбор из локального справочника':'AI · живой подбор'}</span><h2>${title}</h2></div><button class="btn icon-only" data-ai-close title="Закрыть">×</button></header>
     <div class="ai-stepbar"><span class="${configure?'active':''}">1 · Контекст</span><span class="${configure?'':'active'}">2 · Проверка предложений</span></div>
     ${configure ? aiConfigureMarkup(mode) : aiReviewMarkup(mode)}
     <footer class="dialog-foot">${configure ? `<button class="btn" data-ai-close>Отмена</button><button class="btn primary" data-ai-generate>Сформировать предложения</button>` : `<button class="btn" data-ai-back>← Контекст</button><button class="btn primary" data-ai-apply>Добавить выбранное</button>`}</footer>
@@ -317,7 +358,7 @@ function aiModalMarkup() {
 
 function aiConfigureMarkup(mode) {
   return `<div class="dialog-body ai-body"><p class="ai-disclaimer">AI учитывает выбранные ветки, этапы, участников и объекты каталога. Предложения добавятся только после вашей проверки.</p>
-    ${mode === 'goals' && aiState.creator !== 'Администратор' ? '<p class="ai-disclaimer">После добавления предложенных целей в этом сценарии будет выбрано «Цели создаёт администратор». Если закрыть окно без добавления, настройка не изменится.</p>' : ''}
+    ${mode === 'goals' ? '<p class="ai-disclaimer">Выбранные цели добавятся в текущий сценарий. Правило создания целей останется заданным в его настройках.</p>' : ''}
     <section class="ai-section"><h3>Ветки и аудитория</h3><p>ИИ учитывает должности и подразделения из условий каждой ветки. Общий контур не подменяет ролевую ветку.</p><div id="aiScope" class="ai-check-grid">${branches.map(branch => `<label><input type="checkbox" value="${escapeAi(branch.id)}" ${aiState.scope.includes(branch.id)?'checked':''}><span><b>${escapeAi(branch.name)}</b><small>${escapeAi(contextualDescription(branch))}</small></span></label>`).join('')}</div></section>
     ${mode === 'elements' ? `<section class="ai-section"><h3>Этапы для наполнения</h3><div id="aiStages" class="ai-stage-grid">${stages.map(stage => `<label><input type="checkbox" value="${escapeAi(stage.id)}" ${aiState.stages.includes(stage.id)?'checked':''}>${escapeAi(stage.name)} <small>${escapeAi(stage.days)}</small></label>`).join('')}</div></section><section class="ai-section"><h3>Источники</h3><div class="ai-source-grid"><label><input id="aiSourceCatalog" type="checkbox" checked> Каталог курсов</label><label><input id="aiSourceTasks" type="checkbox" checked> Шаблоны задач</label><label><input id="aiSourceKnowledge" type="checkbox" checked> Статьи, файлы и ссылки</label></div></section>` : `<section class="ai-section"><h3>Источники</h3><p>${mode === 'goals' ? 'Каталог целей и уже добавленные в выбранные ветки элементы. Промежуточный результат связывается только с подходящими элементами.' : 'Структура плана, длительность этапов и сценарии прошлых КТ. Для каждой сессии предлагаются срок, повестка и вопросы пульса.'}</p></section>`}
     <label class="ai-history"><input type="checkbox" id="aiHistory" checked><span><b>Учитывать исторические сигналы</b><small>Агрегированные затруднения похожих должностей и подразделений; без персональных ответов сотрудников.</small></span></label><p id="aiError" class="ai-error" role="alert"></p>
@@ -330,7 +371,7 @@ function aiReviewMarkup(mode) {
     <p class="ai-disclaimer">Проверьте содержание, этап, сроки и связи. Снимите отметку с неподходящих предложений; после добавления их можно отредактировать в канве.</p>
     <div class="ai-proposals">${aiState.proposals.map(proposal => `<article class="ai-proposal" data-ai-proposal="${escapeAi(proposal.id)}"><label class="ai-proposal-head"><input class="ai-proposal-check" type="checkbox" value="${escapeAi(proposal.id)}" checked><span>${mode === 'elements' ? `${escapeAi(aiBranch(proposal.branchId)?.name)} · ${escapeAi(aiStage(proposal.stageId)?.name)}` : mode === 'goals' ? escapeAi(aiBranch(proposal.branchId)?.name) : `КТ · ${escapeAi(aiState.scope.map(id=>aiBranch(id)?.name).join(', '))}`}</span><small>${escapeAi(proposal.source || 'Сессия КТ')}</small></label>
       <label class="ai-input-label">${mode === 'checkpoints' ? 'Название встречи' : mode === 'goals' ? 'Цель' : 'Название элемента'}<input data-ai-title value="${escapeAi(proposal.title)}"></label>
-      ${mode === 'goals' ? `<label class="ai-input-label">Промежуточный результат<input data-ai-result value="${escapeAi(proposal.result)}"></label><label class="ai-input-label ai-day">Срок, день плана<input data-ai-day type="number" min="1" max="${aiPlanEnd()}" value="${proposal.day}"></label><div class="ai-links"><b>Связать результат с элементами</b>${proposal.candidates.length ? proposal.candidates.map(item => `<label><input data-ai-link type="checkbox" value="${escapeAi(item.id)}" ${proposal.linked.some(link=>link.id===item.id)?'checked':''}> ↗ ${escapeAi(item.title)} <small>${escapeAi(aiBranch(item.cell.split('-')[0])?.name || 'Общий контур')}</small></label>`).join('') : '<span class="ai-empty-link">В этой ветке пока нет подходящих элементов. Добавьте их на канву, затем выберите связь.</span>'}</div>` : ''}
+      ${mode === 'goals' ? `<label class="ai-input-label">Промежуточный результат<input data-ai-result value="${escapeAi(proposal.result)}"></label><label class="ai-input-label ai-day">Срок, день плана<input data-ai-day type="number" min="1" max="${aiPlanEnd()}" value="${proposal.day}"></label><div class="ai-links"><b>Связать результат с элементами</b>${proposal.candidates.length ? proposal.candidates.map(item => `<label><input data-ai-link type="checkbox" value="${escapeAi(`${item.cell}::${item.id}`)}" ${proposal.linked.some(link=>link.id===item.id&&link.cell===item.cell)?'checked':''}> ↗ ${escapeAi(item.title)} <small>${escapeAi(aiItemContext(item.cell))}</small></label>`).join('') : '<span class="ai-empty-link">В этой ветке пока нет подходящих элементов. Добавьте их на канву, затем выберите связь.</span>'}</div>` : ''}
       ${mode === 'checkpoints' ? `<label class="ai-input-label ai-day">День плана<input data-ai-day type="number" min="1" max="${aiPlanEnd()}" value="${proposal.day}"></label><label class="ai-input-label">Повестка<textarea data-ai-agenda rows="2">${escapeAi(proposal.agenda)}</textarea></label><label class="ai-input-label">Вопросы пульса<textarea data-ai-pulse rows="2">${escapeAi(proposal.pulse)}</textarea></label>` : ''}
       <p class="ai-reason">Почему предложено: ${escapeAi(proposal.reason)}</p></article>`).join('')}</div><p id="aiReviewError" class="ai-error" role="alert"></p></div>`;
 }

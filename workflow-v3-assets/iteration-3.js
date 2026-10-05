@@ -58,7 +58,7 @@
   const clone = value => JSON.parse(JSON.stringify(value));
   const draftSnapshot = () => ({
     stages:clone(stages), branches:clone(branches), items:clone(state.items || {}), extras:clone(extras || {}),
-    state:clone({processTitle:state.processTitle,assistantAnswers:state.assistantAnswers,manualLaunch:state.manualLaunch,launchConfigured:state.launchConfigured,scopeSelections:state.scopeSelections,newRoles:state.newRoles,coordinatorRule:state.coordinatorRule,generatedProcess:state.generatedProcess,generatedAiProcess:state.generatedAiProcess,goalScenarios:state.goalScenarios,ktScenarios:state.ktScenarios,outcomeRules:state.outcomeRules,generatedGoalTemplates:state.generatedGoalTemplates,generatedKtTemplates:state.generatedKtTemplates,goalPlacements:state.goalPlacements,ktPlacements:state.ktPlacements,activeTemplateScenario:state.activeTemplateScenario}),
+    state:clone({processTitle:state.processTitle,assistantAnswers:state.assistantAnswers,manualLaunch:state.manualLaunch,launchConfigured:state.launchConfigured,scopeSelections:state.scopeSelections,scopeSelectionConfigured:state.scopeSelectionConfigured,newRoles:state.newRoles,coordinatorRule:state.coordinatorRule,generatedProcess:state.generatedProcess,generatedAiProcess:state.generatedAiProcess,goalScenarios:state.goalScenarios,ktScenarios:state.ktScenarios,outcomeRules:state.outcomeRules,generatedGoalTemplates:state.generatedGoalTemplates,generatedKtTemplates:state.generatedKtTemplates,goalPlacements:state.goalPlacements,ktPlacements:state.ktPlacements,activeTemplateScenario:state.activeTemplateScenario}),
     ai:typeof aiState === 'object' ? clone({goals:aiState.goals,sessions:aiState.sessions,creator:aiState.creator}) : null
   });
   const persistDraft = () => {
@@ -113,13 +113,10 @@
     const selected=(window.SkillazReferenceData?.positions||[]).filter(position=>state.scopeSelections?.role?.includes(position.id)).map(position=>position.title);
     if(selected.length>1)return selected.slice(0,4);
     const text=[state.assistantAnswers?.audience,state.assistantAnswers?.audienceIntent,state.processTitle,...(state.assistantLiveHistory||[]).filter(item=>item.role==='user').map(item=>item.text)].filter(Boolean).join(' ').toLowerCase();
-    if(/маркет|бренд|копирайт|ивент/.test(text))return ['Маркетолог','Копирайтер','Ивент-менеджер'];
-    if(/кассир|продав|розниц|магазин/.test(text))return ['Кассир','Продавец-консультант','Сотрудник выкладки'];
-    if(/курьер|достав|логист|склад/.test(text))return ['Курьер','Водитель','Кладовщик'];
-    if(/производ|цех|станок|оператор/.test(text))return ['Оператор линии','Контролёр ОТК','Мастер смены'];
-    return selected.length?selected:[];
+    const directoryTitles=window.SkillazProductionCatalog?.relevantPositionTitles?.(text,4)||[];
+    return selected.length?selected:directoryTitles;
   };
-  const ensureCommonBranch = () => {
+  const ensureCommonBranch = (consolidate=false) => {
     if (!needsCommonBranch() || !branches.length) return;
     let commonIndex = branches.findIndex(branch=>branch.id==='base');
     if(commonIndex<0) commonIndex = branches.findIndex((branch,index)=>index===0 && /вся выбранная|общая часть|общий контур|^true$/i.test(`${branch.name} ${branch.desc||''} ${(branch.conditions||[]).join(' ')}`));
@@ -129,11 +126,12 @@
       stages.forEach(stage=>{ const oldKey=`${oldId}-${stage.id}`,newKey=`base-${stage.id}`; if(state.items?.[oldKey]){state.items[newKey]=state.items[oldKey];delete state.items[oldKey];} });
     } else if(commonIndex<0) branches.unshift({id:'base',name:'Общий контур',meta:['Вся аудитория','AI'],desc:'Вся выбранная аудитория',conditions:['Вся выбранная аудитория']});
     state.items ||= {};
-    stages.forEach(stage=>{
+    if(consolidate)stages.forEach(stage=>{
       const lists=branches.filter(branch=>branch.id!=='base').map(branch=>state.items[`${branch.id}-${stage.id}`]||[]);
       if(lists.length<2) return;
       const shared=[...new Set(lists[0].map(item=>item.title))].filter(title=>lists.every(list=>list.some(item=>item.title===title)));
-      state.items[`base-${stage.id}`]=shared.map(title=>({...lists[0].find(item=>item.title===title),id:`base-${stage.id}-${Math.random().toString(36).slice(2,8)}`}));
+      const commonList=state.items[`base-${stage.id}`]||=[];
+      shared.forEach(title=>{if(!commonList.some(item=>item.title===title))commonList.push({...lists[0].find(item=>item.title===title)});});
       if(shared.length) branches.filter(branch=>branch.id!=='base').forEach(branch=>{const key=`${branch.id}-${stage.id}`;state.items[key]=(state.items[key]||[]).filter(item=>!shared.includes(item.title));});
     });
     if(branches.length===1) inferredVariantNames().forEach((name,index)=>branches.push({id:`role-variant-${index+1}`,name,meta:[`Должность: ${name}`,'AI'],desc:`Должность: ${name}`,conditions:[`Должность: ${name}`]}));
@@ -148,11 +146,18 @@
       const list = state.items[cell] ||= [];
       const target = stageIndex === stages.length - 1 ? 1 : 2;
       if (list.length >= target) return;
-      const matches = catalog.relevantElements(`${processContext} ${branch.name} ${branch.desc || ''} ${stage.name}`, 60)
-        .filter(row => ['course','article','task','test','survey','action','meeting'].includes(row.type));
-      for (const row of matches) {
+      const query=branch.id==='base'?processContext:`${branch.name} ${branch.desc || ''} ${(branch.conditions||[]).join(' ')}`;
+      const family=catalog.resolveJobContext?.(query)?.key;
+      const matches = catalog.relevantElements(`${query} ${stage.name}`, 80)
+        .filter(row => ['course','article','task','test','survey','action','meeting'].includes(row.type))
+        .filter(row=>branch.id==='base'?row.domain==='universal':row.domain===family||row.domain==='universal');
+      const stageText=stage.name.toLowerCase();
+      const preferredTypes=/пульс|обратн|адаптац/.test(stageText)?['survey','meeting']:/провер|оценк|допуск|итог/.test(stageText)?['test','task']:/практик|самостоятель|трениров/.test(stageText)?['task','article']:/доступ|подготов|до старт|первый день/.test(stageText)?['task','article']:['course','article'];
+      const usedTitles=new Set(stages.filter(previous=>previous.id!==stage.id).flatMap(previous=>(state.items[`${branch.id}-${previous.id}`]||[]).map(item=>item.title)));
+      const ordered=[...matches].sort((a,b)=>(preferredTypes.includes(b.type)?1:0)-(preferredTypes.includes(a.type)?1:0));
+      for (const row of ordered) {
         if (list.length >= target) break;
-        if (list.some(item=>item.title===row.title)) continue;
+        if (list.some(item=>item.title===row.title)||usedTitles.has(row.title)) continue;
         const id = `ai-catalog-${branch.id}-${stage.id}-${serial++}`;
         list.push({id,type:canvasType(row.type),title:row.title,meta:`AI · ${row.source}`,sourceId:row.id,outcomes:[]});
       }
@@ -245,6 +250,7 @@
 
   const generateProcess = async () => {
     if (state.processGenerating) return;
+    const priorBranches=branches.map(branch=>({id:branch.id,name:branch.name}));
     state.processGenerating = true;
     toast('AI анализирует запуск, аудиторию, роли и каталоги…');
     let generated = null;
@@ -267,15 +273,19 @@
         return {id:branch.id||`branch-${index+1}`,name:branch.name,meta:[condition,'AI'],desc:condition,conditions:[condition]};
       }));
       state.items = {};
+      const seenItems=new Set();
       (generated.items||[]).forEach((item,index)=>{
         const branchId = branches.some(branch=>branch.id===item.branchId) ? item.branchId : branches[0].id;
         const stageId = stages.some(stage=>stage.id===item.stageId) ? item.stageId : stages[0].id;
         const cell = `${branchId}-${stageId}`;
+        const identity=`${branchId}::${String(item.title).trim().toLowerCase()}`;
+        if(seenItems.has(identity))return;
+        seenItems.add(identity);
         const id = item.id||`ai-${index}`;
         (state.items[cell] ||= []).push({id,type:canvasType(item.type),title:item.title,meta:item.assignee||'AI · каталог',sourceId:item.sourceId,outcomes:item.outcomes||[]});
         if (item.outcomes?.[0] && state.outcomeRules) state.outcomeRules[id] = {condition:item.outcomes[0].if,action:item.outcomes[0].then};
       });
-      ensureCommonBranch();
+      ensureCommonBranch(true);
       enrichGeneratedItems();
       extras = {};
       state.processTitle = generated.title || state.assistantAnswers?.scenario || 'Новый процесс';
@@ -289,11 +299,14 @@
       ];
       aiState.goals = generatedGoals.map((goal,index)=>({
         id:`generated-goal-${index}`,branchId:goal.branchId||branches[0].id,title:goal.title,result:goal.result||goal.title,
-        day:Number(goal.day)||30,source:'AI · каталог целей',candidates:[],linked:(goal.linkedItemIds||[]).map(id=>({id,title:Object.values(state.items).flat().find(item=>item.id===id)?.title||id}))
+        day:Number(goal.day)||30,source:'AI · каталог целей',candidates:[],linked:(goal.linkedItemIds||[]).flatMap(id=>{
+          const match=Object.entries(state.items).flatMap(([cell,items])=>items.map(item=>({...item,cell}))).find(item=>item.id===id);
+          return match?[{id,title:match.title,cell:match.cell}]:[];
+        })
       }));
       aiState.sessions = [{branches:branches.map(branch=>branch.id),entries:generatedCheckpoints.map((checkpoint,index)=>({
         id:`generated-kt-${index}`,title:checkpoint.title,day:Number(checkpoint.day)||[14,30,60][index]||30,
-        agenda:checkpoint.result||'Проверить результат этапа и договориться о следующих шагах.',pulse:checkpoint.onFail||'Какая поддержка нужна сотруднику?',participants:checkpoint.participants||[]
+        agenda:checkpoint.agenda||checkpoint.result||'Проверить результат этапа и договориться о следующих шагах.',pulse:checkpoint.pulse||'Какая поддержка нужна сотруднику?',participants:checkpoint.participants||[]
       }))}];
     } else {
       const contextText = [...Object.values(state.assistantAnswers || {}),state.manualLaunch?.audience || ''].join(' ');
@@ -329,8 +342,17 @@
     state.generatedGoalTemplates = aiState.goals.map(goal=>({...goal,type:'goal',links:goal.linked||[]}));
     state.generatedKtTemplates = aiState.sessions.flatMap(session=>session.entries||[]).map(entry=>({...entry,type:'checkpoint'}));
     state.goalScenarios ||= []; state.ktScenarios ||= [];
+    const refreshScope=scenario=>({...scenario,branches:[...new Set((scenario.branches||[]).map(id=>{
+      if(branches.some(branch=>branch.id===id))return id;
+      const oldName=priorBranches.find(branch=>branch.id===id)?.name?.toLowerCase().replace(/^путь[: ]*/,'');
+      return oldName?branches.find(branch=>branch.name.toLowerCase().replace(/^путь[: ]*/,'').startsWith(oldName.slice(0,6)))?.id:null;
+    }).filter(Boolean))]});
+    state.goalScenarios=state.goalScenarios.map(refreshScope).filter(scenario=>scenario.branches.length);
+    state.ktScenarios=state.ktScenarios.map(refreshScope).filter(scenario=>scenario.branches.length);
     if(!state.goalScenarios.length)state.goalScenarios.push({branches:branches.map(branch=>branch.id),creator:'Администратор',timing:'При назначении плана'});
     if(!state.ktScenarios.length)state.ktScenarios.push({branches:branches.map(branch=>branch.id),creator:'Руководитель',timing:'По срокам шаблонов КТ'});
+    state.goalPlacements={'goal-manual-0':state.generatedGoalTemplates.map(goal=>({...goal,links:[...(goal.links||[])]}))};
+    state.ktPlacements={'kt-manual-0':state.generatedKtTemplates.map(checkpoint=>({...checkpoint}))};
     state.newWorkflow = true;
     state.workflow = 'generated';
     state.generatedProcess = true;

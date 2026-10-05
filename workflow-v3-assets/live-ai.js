@@ -36,6 +36,7 @@
       businessRoles:catalog.relevantRoles(query, 24),
       organizationStructures:references.structures || [],
       positions:references.positions || [],
+      jobContext:catalog.resolveJobContext?.(query) || null,
       employeeGroups:references.groups || [],
       territories:references.regions || [],
       catalogStats:{...catalog.stats,referenceData:window.SkillazReferenceData?.stats || {}}

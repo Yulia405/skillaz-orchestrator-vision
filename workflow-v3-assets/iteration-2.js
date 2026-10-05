@@ -111,15 +111,16 @@
   };
 
   state.scopeSelections ??= {org:[],role:[],group:[],location:[]};
-  const referenceQuery = () => [answers().audience,answers().result,state.assistantAnswers?.scenario,...(state.assistantLiveHistory||[]).map(item=>item.text)].filter(Boolean).join(' ');
+  const referenceQuery = () => [answers().audience,state.assistantAnswers?.audienceIntent,...(state.assistantLiveHistory||[]).filter(item=>item.role==='user').map(item=>item.text)].filter(Boolean).join(' ');
   const normalizedScope = value => String(value||'').toLowerCase().replace(/ё/g,'е');
   const audienceMatches = value => {
     const audience = normalizedScope(answers().audience);
-    const stop = ['магаз','сотруд','регион','област','республик','край','округ','отдел','групп','подраздел'];
+    const stop = ['магаз','сотруд','регион','област','республик','край','округ','отдел','групп','подраздел','адаптац','специалист','менеджер','руководител','самостоятель','обучен'];
     const words = normalizedScope(value).split(/[^а-яa-z0-9]+/).filter(word=>word.length>4&&!stop.some(stem=>word.startsWith(stem)));
     return words.some(word=>audience.includes(word) || audience.includes(word.slice(0,Math.min(5,word.length))));
   };
   const audienceMentions = value => {
+    if(state.scopePicker==='role'&&!audienceMatches(value))return false;
     const tokens = normalizedScope(answers().audience).split(/[^а-яa-z0-9]+/).filter(Boolean);
     const target = normalizedScope(value);
     const distance = (left,right) => {
@@ -130,7 +131,8 @@
     const prefixLength = target.length >= 8 ? 8 : target.length >= 5 ? target.length - 1 : target.length;
     return tokens.some(token=>token===target || (prefixLength>=4&&token.slice(0,prefixLength)===target.slice(0,prefixLength)) || (target.length<=4&&token.slice(0,2)===target.slice(0,2)&&distance(token,target)<=2));
   };
-  const checkedScope = (type,id,value,index,suppressDefault=false) => state.scopeSelections[type]?.includes(id) || audienceMatches(value) || (!suppressDefault && !state.scopeSelections[type]?.length && index < 2);
+  const scopeWasChosen = type => state.scopeSelectionConfigured?.[type] || Boolean(state.scopeSelections[type]?.length);
+  const checkedScope = (type,id,value) => scopeWasChosen(type) ? state.scopeSelections[type]?.includes(id) : audienceMatches(value);
   const domainLabel = value => ({retail:'Розница',logistics:'Логистика',production:'Производство',office:'Офис'}[value] || value);
   const levelLabel = value => ({manager:'Руководитель',senior:'Старший специалист',specialist:'Специалист'}[value] || value);
   const orgHasContextMatch = node => audienceMatches(node.name) || (node.children || []).some(orgHasContextMatch);
@@ -155,7 +157,7 @@
       : [...cityRows,{id:'all-regions',label:'Все регионы присутствия',meta:'Все площадки выбранной структуры'},...(directory?.relevantRegions(query,18)||[]).map(row=>({id:row.id,label:row.name,meta:`${row.district} · ${row.cities.slice(0,4).join(', ')}`}))];
     const title = {role:'Должности',group:'Группы сотрудников',location:'Территория'}[state.scopePicker];
     const suppressDefault = state.scopePicker === 'location' ? (cityRows.length > 0 || rows.some(row=>audienceMatches(`${row.label} ${row.meta}`))) : state.scopePicker === 'role' ? rows.some(row=>row.preselected) : false;
-    const rowChecked = (row,index) => row.preselected || (state.scopePicker==='location'&&cityRows.length ? state.scopeSelections.location.includes(row.id) : checkedScope(state.scopePicker,row.id,`${row.label} ${row.meta}`,index,suppressDefault));
+    const rowChecked = (row,index) => scopeWasChosen(state.scopePicker) ? state.scopeSelections[state.scopePicker]?.includes(row.id) : row.preselected || (state.scopePicker==='location'&&cityRows.length ? false : checkedScope(state.scopePicker,row.id,row.label,index,suppressDefault));
     return `<div class="local-overlay scope-picker-overlay" role="dialog" aria-modal="true" aria-label="Выбор охвата"><section class="scope-picker-card reference-picker-card"><header><div><span class="tag blue">Базовый охват</span><h2>${title}</h2><p>Справочник отфильтрован по должностям, структуре и сценарию из диалога с AI.</p></div><button class="btn icon-only" data-local-action="close-scope-picker">×</button></header><div class="directory-context"><b>Найдено по контексту</b><span>${rows.length} значений · первые варианты рекомендованы</span></div><div class="scope-options reference-options">${rows.map((row,index)=>`<label><input type="checkbox" data-scope-value="${row.id}" data-scope-label="${row.label}" ${rowChecked(row,index)?'checked':''}><span><b>${row.label}</b><small>${row.meta}</small></span></label>`).join('')}</div><footer><button class="btn" data-local-action="close-scope-picker">Отмена</button><button class="btn primary" data-local-action="apply-scope-picker">Применить выбор</button></footer></section></div>`;
   };
 
@@ -214,6 +216,7 @@
         const ids = checked.map(input=>input.dataset.scopeValue);
         const labels = [...new Set(checked.map(input=>input.dataset.scopeLabel).filter(Boolean))];
         state.scopeSelections[state.scopePicker] = ids;
+        state.scopeSelectionConfigured||={};state.scopeSelectionConfigured[state.scopePicker]=true;
         const prefix = {org:'Структура',role:'Должности',group:'Группы',location:'Территория'}[state.scopePicker];
         const base = String(state.manualLaunch.audience || state.assistantAnswers?.audience || '').split(' · ').filter(part=>!part.startsWith(prefix+':'));
         if (labels.length) base.push(`${prefix}: ${labels.slice(0,8).join(', ')}`);
