@@ -318,14 +318,18 @@
     state.assistantUserMessages[state.assistantStep] = value;
     state.assistantLiveHistory.push({role:'user',text:value});
     state.assistantModelHistory.push({role:'user',text:value});
+    const parsedScope=globalThis.SkillazScope?.parse(value,window.SkillazReferenceData?.regions||[]);
+    if(parsedScope?.confirmed){state.launchScope=parsedScope;state.scopeSelections||={};state.scopeSelections.location=parsedScope.locationIds;state.scopeSelectionConfigured||={};state.scopeSelectionConfigured.location=true;}
     state.assistantBusy = true; state.assistantError = ''; render();
     try {
       const query = [value,...Object.values(state.assistantAnswers)].join(' ');
       const result = await window.SkillazLiveAI.ask('launch', {
-        message:value, context:{answers:state.assistantAnswers,askedQuestions:state.assistantAskedQuestions,turn:state.assistantModelHistory.filter(message=>message.role==='user').length}, history:state.assistantModelHistory,
+        message:value, context:{answers:state.assistantAnswers,scope:state.launchScope,askedQuestions:state.assistantAskedQuestions,turn:state.assistantModelHistory.filter(message=>message.role==='user').length}, history:state.assistantModelHistory,
         catalog:window.SkillazLiveAI.context(query)
       });
       Object.entries(result.updates || {}).forEach(([key,val]) => { if (val && key in state.assistantAnswers) state.assistantAnswers[key] = val; });
+      if(result.scope?.confirmed){state.launchScope=result.scope;state.scopeSelections.location=result.scope.locationIds;state.scopeSelectionConfigured.location=true;}
+      if(state.launchScope?.confirmed&&/регионах|географ|территори/.test(result.question||'')&&state.assistantAnswers.audience&&state.assistantAnswers.result){result.ready=true;result.question='';result.message='Охват сохранён: '+state.launchScope.label;}
       if (!state.assistantAnswers.audienceIntent) state.assistantAnswers.audienceIntent = value;
       if (!state.assistantAnswers.audience && state.assistantAnswers.audienceIntent && /для|сотруд|маркет|кассир|продав|курьер|водител|оператор|руковод|аналит|подраздел|отдел/i.test(state.assistantAnswers.audienceIntent)) state.assistantAnswers.audience = state.assistantAnswers.audienceIntent;
       state.assistantAnswers.event = normalizedEvent(state.assistantAnswers.event);
@@ -340,8 +344,9 @@
       if (result.ready) completeLaunchDefaults();
       state.assistantStep = result.ready ? 7 : Math.min(6,state.assistantStep + 1);
     } catch (error) {
-      state.assistantError = 'Живой AI временно недоступен. Ответ сохранён, можно продолжить в демо-режиме.';
-      applyLocalAssistantAnswer(value);
+      state.assistantError = error.message || 'AI временно недоступен. Ответ сохранён.';
+      if(state.launchScope?.confirmed&&state.assistantAnswers.audience&&state.assistantAnswers.result){completeLaunchDefaults();state.assistantStep=7;}
+      else applyLocalAssistantAnswer(value);
     } finally { state.assistantBusy = false; render(); }
     requestAnimationFrame(() => {
       const thread = document.querySelector('.assistant-thread');

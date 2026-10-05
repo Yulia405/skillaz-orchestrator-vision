@@ -174,18 +174,24 @@
   };
 
   const enterpriseRoles = window.SkillazReferenceData?.businessRoles || [];
+  const professionalRoles=Object.entries(jobFamilies).flatMap(([domain,family])=>[
+    ['Наставник','functional','Помогает освоить профессиональные задачи'],
+    ['Эксперт','functional','Проверяет практику и качество результата'],
+    ['Координатор','administrative','Контролирует сроки и организует поддержку']
+  ].map(([name,assignmentType,purpose],index)=>({id:`role-${domain}-${index}`,name:`${name} · ${family.name}`,domain,domainName:family.name,assignmentType,purpose,assignmentRule:assignmentType==='administrative'?'По административной структуре выбранного подразделения':'По бизнес-роли в выбранном подразделении',tags:[...family.keywords,...family.titles]})));
   window.SkillazProductionCatalog = {
     elements:[...familyElements,...universalElements,...goalElements,...checkpointElements,...elements],
-    businessRoles:[...enterpriseRoles,...businessRoles],
+    businessRoles:[...professionalRoles,...enterpriseRoles,...businessRoles],
     relevantElements(query, limit=28){ return relevant(this.elements, query, limit); },
     relevantRoles(query, limit=24){
       const contextual = window.SkillazReferenceData?.relevantBusinessRoles(query,limit) || [];
       const fallback = relevant(this.businessRoles, query, limit);
-      return [...contextual,...fallback.filter(role=>!contextual.some(item=>item.id===role.id))].slice(0,limit);
+      const professional=professionalRoles.filter(role=>role.domain===resolveJobContext(query).key);
+      return [...professional,...contextual,...fallback].filter((role,index,rows)=>rows.findIndex(row=>row.id===role.id)===index).slice(0,limit);
     },
     resolveJobContext,
     jobFamilies,
     relevantPositionTitles(query,limit=6){const context=resolveJobContext(query);return context.titles.slice(0,limit);},
-    stats:{ elements:familyElements.length + universalElements.length + goalElements.length + checkpointElements.length + elements.length, roles:businessRoles.length + enterpriseRoles.length }
+    stats:{ elements:familyElements.length + universalElements.length + goalElements.length + checkpointElements.length + elements.length, roles:businessRoles.length + enterpriseRoles.length + professionalRoles.length }
   };
 })();

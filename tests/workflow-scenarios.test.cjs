@@ -5,6 +5,38 @@ const fs = require('node:fs');
 const path = require('node:path');
 const root = path.resolve(__dirname, '..');
 
+test('scope answers accept all-company wording and resolve every named city',()=>{
+  const ctx=vm.createContext({});vm.runInContext(fs.readFileSync(path.join(root,'workflow-v3-assets/scope-model.js'),'utf8'),ctx);
+  const parse=ctx.SkillazScope.parse;
+  for(const text of ['Вся организационная структура','вся структура по бухгалтерии','все регионы','по всей России'])assert.equal(parse(text).allRegions,true,text);
+  const regions=[{id:'t',name:'Республика Татарстан',cities:['Казань']},{id:'k',name:'Краснодарский край',cities:['Сочи']},{id:'n',name:'Новосибирская область',cities:['Новосибирск']}];
+  assert.equal(parse('Казань, Сочи, Новосибирск',regions).locationIds.length,3);
+  assert.equal(parse('Выбранные регионы и подразделения',regions).confirmed,false);
+});
+
+test('worker respects explicit scope on the next turn without asking again',()=>{
+  const ctx=vm.createContext({});vm.runInContext(fs.readFileSync(path.join(root,'workflow-v3-assets/scope-model.js'),'utf8'),ctx);
+  const worker=fs.readFileSync(path.join(root,'workflow-ai-worker/src/index.js'),'utf8');
+  vm.runInContext(worker.slice(worker.indexOf('function launchResult'),worker.indexOf('function participantsResult')),ctx);
+  const input={userMessage:'Вся организационная структура',history:[],catalog:{territories:[]},context:{answers:{audience:'Бухгалтеры',result:'Самостоятельно закрывать месяц'}}};
+  const result=ctx.launchResult({question:'Где?',updates:{}},input);
+  assert.equal(result.ready,true);assert.equal(result.scope.allRegions,true);assert.equal(result.question,'');
+  const next=ctx.launchResult({updates:{}},{...input,userMessage:'общая часть и варианты',context:{answers:result.updates,scope:result.scope}});
+  assert.equal(next.ready,true);assert.equal(next.scope.allRegions,true);
+});
+
+test('checkpoint model stays a meeting and evaluation placements own independent snapshots',()=>{
+  const {ctx}=appHarness();vm.runInContext(fs.readFileSync(path.join(root,'workflow-v3-assets/workflow-objects.js'),'utf8'),ctx);
+  const api=ctx.window.SkillazObjects;
+  const meeting=api.normalizeCheckpoint({id:'kt',title:'Обратная связь',agenda:'Разобрать результаты',pulse:'Насколько понятна роль?; Какая поддержка нужна?'});
+  assert.equal(meeting.type,'checkpoint');assert.equal(meeting.questions[0].type,'scale');assert.equal(meeting.questions[1].type,'text');assert.equal(meeting.showBeforeDays,3);
+  const sheet=api.evaluationSheets.find(x=>x.domain==='finance');
+  const a=api.assessmentInStage('base-day1',sheet),b=api.assessmentInStage('cashier-day1',sheet);
+  a.evaluation.blocks[0].criteria[0].title='Изменено';
+  assert.notEqual(b.evaluation.blocks[0].criteria[0].title,'Изменено');assert.notEqual(sheet.blocks[0].criteria[0].title,'Изменено');
+  assert.equal(a.evaluation.status,'published');assert.ok(a.evaluation.blocks.some(block=>block.criteria.some(c=>c.critical)));
+});
+
 function appHarness() {
   const nodes = new Map(), listeners = [];
   const document = {
@@ -100,4 +132,18 @@ test('opening a draft preserves existing common cards and their stable IDs',()=>
   assert.equal(ctx.state.items['cashier-day1'].length,1);
   vm.runInContext('ensureCommonBranch(true);ensureCommonBranch(true)',ctx);
   assert.deepEqual(Array.from(ctx.state.items['base-day1'],item=>item.id),['original','shared']);
+});
+
+
+test('AI keeps its destination when another scenario is selected during review',()=>{
+  const {ctx,nodes}=appHarness();
+  ctx.state.goalScenarios=[{branches:['base']},{branches:['cashier']}];
+  ctx.state.activeTemplateScenario={kind:'goal',key:'goal-manual-1'};
+  vm.runInContext("aiOpen('goals')",ctx);
+  ctx.state.activeTemplateScenario={kind:'goal',key:'goal-manual-0'};
+  nodes.set('.ai-proposal-check',[{checked:true,value:'new-goal'}]);
+  nodes.set('[data-ai-proposal="new-goal"]',[{querySelector:selector=>({value:selector==='[data-ai-day]'?'14':'Результат кассира'})}]);
+  vm.runInContext("aiState.proposals=[{id:'new-goal',branchId:'cashier',title:'Результат кассира',day:14,candidates:[]}];aiApply()",ctx);
+  assert.equal(ctx.state.goalPlacements['goal-manual-1'].length,1);
+  assert.equal(ctx.state.goalPlacements['goal-manual-0'],undefined);
 });

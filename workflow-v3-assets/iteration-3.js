@@ -58,7 +58,7 @@
   const clone = value => JSON.parse(JSON.stringify(value));
   const draftSnapshot = () => ({
     stages:clone(stages), branches:clone(branches), items:clone(state.items || {}), extras:clone(extras || {}),
-    state:clone({processTitle:state.processTitle,assistantAnswers:state.assistantAnswers,manualLaunch:state.manualLaunch,launchConfigured:state.launchConfigured,scopeSelections:state.scopeSelections,scopeSelectionConfigured:state.scopeSelectionConfigured,newRoles:state.newRoles,coordinatorRule:state.coordinatorRule,generatedProcess:state.generatedProcess,generatedAiProcess:state.generatedAiProcess,goalScenarios:state.goalScenarios,ktScenarios:state.ktScenarios,outcomeRules:state.outcomeRules,generatedGoalTemplates:state.generatedGoalTemplates,generatedKtTemplates:state.generatedKtTemplates,goalPlacements:state.goalPlacements,ktPlacements:state.ktPlacements,activeTemplateScenario:state.activeTemplateScenario}),
+    state:clone({processTitle:state.processTitle,assistantAnswers:state.assistantAnswers,manualLaunch:state.manualLaunch,launchConfigured:state.launchConfigured,scopeSelections:state.scopeSelections,scopeSelectionConfigured:state.scopeSelectionConfigured,launchScope:state.launchScope,newRoles:state.newRoles,coordinatorRule:state.coordinatorRule,generatedProcess:state.generatedProcess,generatedAiProcess:state.generatedAiProcess,goalScenarios:state.goalScenarios,ktScenarios:state.ktScenarios,outcomeRules:state.outcomeRules,generatedGoalTemplates:state.generatedGoalTemplates,generatedKtTemplates:state.generatedKtTemplates,goalPlacements:state.goalPlacements,ktPlacements:state.ktPlacements,activeTemplateScenario:state.activeTemplateScenario}),
     ai:typeof aiState === 'object' ? clone({goals:aiState.goals,sessions:aiState.sessions,creator:aiState.creator}) : null
   });
   const persistDraft = () => {
@@ -107,7 +107,7 @@
       </main></div>${overlays}`;
   };
 
-  const canvasType = type => ({test:'assessment',checkpoint:'assessment',meeting:'task',action:'task',goal:'task'}[type] || type || 'task');
+  const canvasType = type => ({meeting:'task',action:'task'}[type] || type || 'task');
   const needsCommonBranch = () => /общая часть|вариант/i.test(String(state.assistantAnswers?.pathType || ''));
   const inferredVariantNames = () => {
     const selected=(window.SkillazReferenceData?.positions||[]).filter(position=>state.scopeSelections?.role?.includes(position.id)).map(position=>position.title);
@@ -275,6 +275,8 @@
       state.items = {};
       const seenItems=new Set();
       (generated.items||[]).forEach((item,index)=>{
+        const source=window.SkillazProductionCatalog?.elements.find(row=>row.id===item.sourceId);
+        if(['goal','checkpoint'].includes(item.type)||['goal','checkpoint'].includes(source?.type))return;
         const branchId = branches.some(branch=>branch.id===item.branchId) ? item.branchId : branches[0].id;
         const stageId = stages.some(stage=>stage.id===item.stageId) ? item.stageId : stages[0].id;
         const cell = `${branchId}-${stageId}`;
@@ -299,14 +301,15 @@
       ];
       aiState.goals = generatedGoals.map((goal,index)=>({
         id:`generated-goal-${index}`,branchId:goal.branchId||branches[0].id,title:goal.title,result:goal.result||goal.title,
-        day:Number(goal.day)||30,source:'AI · каталог целей',candidates:[],linked:(goal.linkedItemIds||[]).flatMap(id=>{
+        day:Number(goal.day)||30,subgoals:goal.subgoals||[],source:'AI · каталог целей',candidates:[],linked:(goal.linkedItemIds||[]).flatMap(id=>{
           const match=Object.entries(state.items).flatMap(([cell,items])=>items.map(item=>({...item,cell}))).find(item=>item.id===id);
           return match?[{id,title:match.title,cell:match.cell}]:[];
         })
       }));
       aiState.sessions = [{branches:branches.map(branch=>branch.id),entries:generatedCheckpoints.map((checkpoint,index)=>({
         id:`generated-kt-${index}`,title:checkpoint.title,day:Number(checkpoint.day)||[14,30,60][index]||30,
-        agenda:checkpoint.agenda||checkpoint.result||'Проверить результат этапа и договориться о следующих шагах.',pulse:checkpoint.pulse||'Какая поддержка нужна сотруднику?',participants:checkpoint.participants||[]
+        agenda:checkpoint.agenda||checkpoint.result||'Проверить результат этапа и договориться о следующих шагах.',pulse:checkpoint.pulse||'Какая поддержка нужна сотруднику?',participants:checkpoint.participants||[],showBeforeDays:checkpoint.showBeforeDays??3,
+        links:(checkpoint.linkedItemIds||[]).flatMap(id=>Object.entries(state.items).flatMap(([cell,items])=>items.filter(item=>item.id===id).map(item=>({id,cell,title:item.title}))))
       }))}];
     } else {
       const contextText = [...Object.values(state.assistantAnswers || {}),state.manualLaunch?.audience || ''].join(' ');

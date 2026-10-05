@@ -35,7 +35,8 @@
       id:`demo-${state.workflow}-${type}-${index}`,
       title:row.title,
       result:type === 'goal' ? row.description : undefined,
-      agenda:type === 'checkpoint' ? row.description : undefined,
+      agenda:type === 'checkpoint' ? row.agenda||row.description : undefined,
+      pulse:row.pulse,participants:row.participants,showBeforeDays:row.showBeforeDays,subgoals:row.subgoals,
       day:type === 'goal' ? (index ? 45 : 30) : (index ? 45 : 14),
       meta:row.description,
       source:row.source,
@@ -72,6 +73,7 @@
     state.goalLinkMode=null; state.outcomeRules={};
     state.scopeSelections={org:[],role:[],group:[],location:[]};
     state.scopeSelectionConfigured={};
+    state.launchScope=null;state.selectedGoal=null;state.objectEditor=null;
     state.newRoles=[]; state.coordinatorRule=''; state.generatedAiProcess=null;
     previousStartWorkflowV4();
   };
@@ -100,12 +102,14 @@
     const template=(state.goalPlacements[key]||[]).find(row=>row.id===templateId);
     const item=(state.items[cell]||[]).find(row=>row.id===itemId);
     if(!template||!item)return false;
+    state.selectedGoal={id:templateId,key};
     template.links||=[];
     if(!template.links.some(link=>link.id===item.id&&link.cell===cell))template.links.push({id:item.id,title:item.title,cell});
     return true;
   };
-  const goalTemplateCard = (template,key) => `<article class="placed-template-card goal-template-card" data-goal-template-id="${safe4(template.id)}" data-placement-key="${safe4(key)}"><span class="tag purple">Цель · ${safe4(template.day ? `до ${template.day} дня` : 'по сценарию')}</span><b>${safe4(template.title)}</b><small>${safe4(template.result || template.meta || 'Измеримый результат сотрудника')}</small><div class="template-links">${(template.links||[]).map(link=>`<button data-unlink-goal="${safe4(template.id)}" data-unlink-key="${safe4(key)}" data-unlink-item="${safe4(link.id)}" data-unlink-cell="${safe4(link.cell||'')}" title="Удалить связь">↗ ${safe4(link.title)} ×</button>`).join('') || '<span>Связей с действиями пока нет</span>'}</div><div class="template-actions"><button class="btn small ${state.goalLinkMode?.templateId===template.id?'active':''}" data-link-goal="${safe4(template.id)}" data-link-key="${safe4(key)}">${state.goalLinkMode?.templateId===template.id?'Выберите карточку этапа…':'Связать с действием'}</button><button class="btn icon-only small" data-remove-template="${safe4(template.id)}" data-remove-key="${safe4(key)}" data-remove-kind="goal" title="Убрать цель">×</button></div><i class="goal-port"></i></article>`;
-  const ktTemplateCard = (template,key) => `<article class="placed-template-card kt-template-card"><span class="tag amber">Контрольная точка · ${safe4(template.day ? `${template.day} день` : 'по сценарию')}</span><b>${safe4(template.title)}</b><small><strong>Повестка:</strong> ${safe4(template.agenda || template.meta || 'Проверка результата этапа')}</small>${template.pulse?`<small><strong>Пульс:</strong> ${safe4(template.pulse)}</small>`:''}<button class="btn icon-only small" data-remove-template="${safe4(template.id)}" data-remove-key="${safe4(key)}" data-remove-kind="kt" title="Убрать КТ">×</button></article>`;
+  window.SkillazTemplateAPI={addTemplate,scenarioRecords};
+  const goalTemplateCard = (template,key) => `<article class="placed-template-card goal-template-card" data-goal-template-id="${safe4(template.id)}" data-placement-key="${safe4(key)}"><span class="tag purple">Цель · ${safe4(template.day ? `до ${template.day} дня` : 'по сценарию')}</span><b>${safe4(template.title)}</b><small>${safe4(template.result || template.meta || 'Измеримый результат сотрудника')}</small><div class="template-links">${(template.links||[]).map(link=>`<button data-unlink-goal="${safe4(template.id)}" data-unlink-key="${safe4(key)}" data-unlink-item="${safe4(link.id)}" data-unlink-cell="${safe4(link.cell||'')}" title="Удалить связь">↗ ${safe4(link.title)} ×</button>`).join('') || '<span>Связей с действиями пока нет</span>'}</div>${window.SkillazObjects?.goalExtra(template,key)||''}<div class="template-actions"><button class="btn small ${state.goalLinkMode?.templateId===template.id?'active':''}" data-link-goal="${safe4(template.id)}" data-link-key="${safe4(key)}">${state.goalLinkMode?.templateId===template.id?'Выберите карточку этапа…':'Связать с действием'}</button><button class="btn icon-only small" data-remove-template="${safe4(template.id)}" data-remove-key="${safe4(key)}" data-remove-kind="goal" title="Убрать цель">×</button></div><i class="goal-port"></i></article>`;
+  const ktTemplateCard = (template,key) => window.SkillazObjects ? window.SkillazObjects.ktCard(template,key) : `<article class="placed-template-card kt-template-card"><span class="tag amber">Контрольная точка · ${safe4(template.day ? `${template.day} день` : 'по сценарию')}</span><b>${safe4(template.title)}</b><small><strong>Повестка:</strong> ${safe4(template.agenda || template.meta || 'Проверка результата этапа')}</small>${template.pulse?`<small><strong>Пульс:</strong> ${safe4(template.pulse)}</small>`:''}<button class="btn icon-only small" data-remove-template="${safe4(template.id)}" data-remove-key="${safe4(key)}" data-remove-kind="kt" title="Убрать КТ">×</button></article>`;
   const scenarioDropZone = (kind,key) => {
     const templates = placedTemplates(kind,key);
     return `<div class="scenario-template-zone" data-template-drop-kind="${kind}" data-template-drop-key="${safe4(key)}">${templates.map(template=>kind==='goal'?goalTemplateCard(template,key):ktTemplateCard(template,key)).join('')}<div class="scenario-drop-placeholder">Перетащите сюда ${kind==='goal'?'цель':'контрольную точку'} из каталога</div></div>`;
@@ -124,21 +128,21 @@
     ];
   }
 
-  const iconByType = { course:'▣', task:'✓', article:'≡', file:'⇩', test:'□', survey:'◉', action:'⚙', checkpoint:'◆', goal:'◎', meeting:'◈' };
-  const labelByType = { course:'Курс / программа', task:'Задача', article:'Статья', file:'Файл', test:'Тест', survey:'Опрос', action:'Системное действие', checkpoint:'Шаблон контрольной точки', goal:'Шаблон цели', meeting:'Встреча' };
+  const iconByType = { course:'▣', task:'✓', article:'≡', file:'⇩', test:'□', survey:'◉', action:'⚙', assessment:'▤', checkpoint:'◆', goal:'◎', meeting:'◈' };
+  const labelByType = { course:'Курс / программа', task:'Задача', article:'Статья', file:'Файл', test:'Тест', survey:'Опрос', action:'Системное действие', assessment:'Оценочный лист', checkpoint:'Шаблон контрольной точки', goal:'Шаблон цели', meeting:'Встреча' };
   const elementRows = () => {
     const db = window.SkillazDemoDB?.catalogs || {};
     const production = window.SkillazProductionCatalog?.elements || [];
     const scenarioBranchIds = state.activeTemplateScenario ? (scenarioRecords(state.activeTemplateScenario.kind).find(item=>item.key===state.activeTemplateScenario.key)?.scenario?.branches||[]) : [];
     const catalogQuery = (scenarioBranchIds.length ? scenarioBranchIds.map(id=>branches.find(branch=>branch.id===id)?.name) : [state.processTitle,state.assistantAnswers?.audience,state.assistantAnswers?.result]).filter(Boolean).join(' ');
     const contextualProduction = ['goal','checkpoint'].includes(state.cleanCatalogType) && window.SkillazProductionCatalog?.relevantElements ? window.SkillazProductionCatalog.relevantElements(catalogQuery,production.length) : production;
-    const order = state.cleanCatalogType ? [state.cleanCatalogType] : ['course','article','file','task','test','survey','action','goal','checkpoint'];
-    const source = {course:'LMS',article:'База знаний',file:'Файлы клиента',task:'Шаблоны задач',test:'Оценка знаний',survey:'Опросы',action:'Skillaz',goal:'Каталог целей',checkpoint:'Каталог КТ'};
-    const usage = {course:'Назначается сотруднику',article:'Открывается в плане',file:'Доступен для скачивания',task:'Создаёт задачу исполнителю',test:'Сохраняет результат',survey:'Собирает обратную связь',action:'Выполняется автоматически',goal:'Создаётся по сценарию целей',checkpoint:'Запускается по сценарию КТ'};
+    const order = state.cleanCatalogType ? [state.cleanCatalogType] : ['course','article','file','task','test','survey','assessment','action','goal','checkpoint'];
+    const source = {course:'LMS',article:'База знаний',file:'Файлы клиента',task:'Шаблоны задач',test:'Оценка знаний',survey:'Опросы',assessment:'Каталог оценочных листов',action:'Skillaz',goal:'Каталог целей',checkpoint:'Каталог КТ'};
+    const usage = {course:'Назначается сотруднику',article:'Открывается в плане',file:'Доступен для скачивания',task:'Создаёт задачу исполнителю',test:'Сохраняет результат',survey:'Собирает обратную связь',assessment:'Проверка навыка на рабочем месте',action:'Выполняется автоматически',goal:'Создаётся по сценарию целей',checkpoint:'Запускается по сценарию КТ'};
     return order.flatMap(type => {
       const generated = type === 'goal' ? state.generatedGoalTemplates : type === 'checkpoint' ? state.generatedKtTemplates : [];
       const generatedRows = generated.map(row=>({id:row.id,type,title:row.title,meta:row.result||row.agenda||'Создано AI по контексту должности',source:'AI · черновик',usage:usage[type],payload:row}));
-      const liveRows = contextualProduction.filter(row => row.type === type).slice(0,24).map(row => ({id:row.id,type,title:row.title,meta:row.description,source:row.source,usage:usage[type],payload:row}));
+      const liveRows = contextualProduction.filter(row => row.type === type).slice(0,['goal','checkpoint'].includes(type)?500:24).map(row => ({id:row.id,type,title:row.title,meta:row.description,source:row.source,usage:usage[type],payload:row}));
       const directoryRows = liveRows.length ? liveRows : (db[type] || []).slice(0,12).map(row => ({id:row[0],type,title:row[1],meta:row[2],source:source[type],usage:usage[type]}));
       return [...generatedRows,...directoryRows.filter(row=>!generatedRows.some(item=>item.id===row.id))];
     });
@@ -191,7 +195,7 @@
     <button data-clean-element-type="file"><i>⇩</i><span><b>Файл</b><small>PDF, документ или рабочая памятка</small></span></button>
     <button data-clean-element-type="test"><i>□</i><span><b>Тест</b><small>Проверка знаний с результатом</small></span></button>
     <button data-clean-element-type="survey"><i>◉</i><span><b>Опрос</b><small>Пульс или обратная связь</small></span></button>
-    <button data-clean-element-type="goal"><i>◎</i><span><b>Цель</b><small>Шаблон цели из каталога</small></span></button>
+    <button data-open-assessment-catalog><i>▤</i><span><b>Оценочный лист</b><small>Практическая проверка в этапе или цели</small></span></button><button data-clean-element-type="goal"><i>◎</i><span><b>Цель</b><small>Шаблон цели из каталога</small></span></button>
     <button data-clean-element-type="checkpoint"><i>◆</i><span><b>Контрольная точка</b><small>Шаблон КТ из каталога</small></span></button>
     <button data-action="addBranch"><i>◇</i><span><b>Условие</b><small>Настроить вариант пути</small></span></button>
     <button class="clean-ai-pick" data-clean-action="ai-elements"><i>✦</i><span><b>Подобрать с AI</b><small>Агент предложит элементы из разрешённых каталогов</small></span></button>
@@ -235,7 +239,7 @@
     const existing = match ? collection[Number(match[1])] : null;
     const aiBranches = goalMode ? [...new Set((aiState.goals||[]).map(goal=>goal.branchId))] : [...new Set((aiState.sessions||[]).flatMap(session=>session.branches||[]))];
     const selected = existing?.branches || [];
-    return `<div class="modal"><section class="dialog scenario-dialog-v4 clean-scenario-dialog"><header class="dialog-head"><div><span class="tag ${goalMode?'purple':'amber'}">${goalMode?'Сценарий целей':'Сценарий контрольных точек'}</span><h2>${existing?'Изменить сценарий':'Новый сценарий'}</h2><p>Настройте правило создания для выбранных веток процесса.</p></div><button class="btn icon-only" data-action="closeScenario">×</button></header><div class="dialog-body"><section class="scenario-scope"><div><b>Для каких веток работает сценарий</b><p class="muted">Можно создать отдельный сценарий для любой должности, группы или общего контура.</p></div><div class="branch-checks">${branches.map(branch=>`<label><input type="checkbox" data-scenario-branch value="${branch.id}" ${selected.includes(branch.id)?'checked':''}> ${safe4(branch.name)}</label>`).join('')}</div></section>${goalMode?`<div class="form-grid"><div class="field"><label>Кто создаёт цели</label><select data-scenario-creator><option ${existing?.creator==='Администратор'?'selected':''}>Администратор</option><option ${existing?.creator==='Руководитель'?'selected':''}>Руководитель</option><option ${existing?.creator==='Сотрудник'?'selected':''}>Сотрудник</option></select></div><div class="field"><label>Когда создать цели</label><select data-scenario-timing><option>При назначении плана</option><option ${existing?.timing==='В первый день'?'selected':''}>В первый день</option><option ${existing?.timing==='До 5 дня плана'?'selected':''}>До 5 дня плана</option></select></div></div>`:`<div class="form-grid"><div class="field"><label>Ответственный за КТ</label><select data-scenario-creator><option ${existing?.creator==='Руководитель'?'selected':''}>Руководитель</option><option ${existing?.creator==='Наставник'?'selected':''}>Наставник</option><option ${existing?.creator==='Бизнес-роль'?'selected':''}>Бизнес-роль</option></select></div><div class="field"><label>Когда запускать</label><select data-scenario-timing><option>По срокам шаблонов КТ</option><option ${existing?.timing==='После завершения этапа'?'selected':''}>После завершения этапа</option><option ${existing?.timing==='По результату элемента'?'selected':''}>По результату элемента</option></select></div></div>`}<section class="scenario-catalog-note"><b>${goalMode?'Цели':'Шаблоны контрольных точек'} добавляются отдельно</b><span>Используйте кнопку «＋ Добавить» на канве и выберите ${goalMode?'«Цель»':'«Контрольную точку»'} из каталога. Так один сценарий можно наполнить разными шаблонами.</span></section></div><footer class="dialog-foot"><button class="btn" data-action="closeScenario">Отмена</button><button class="btn primary" data-action="saveScenario" data-scenario-kind="${goalMode?'goal':'kt'}" data-scenario-index="${match?match[1]:''}">${existing?'Сохранить':'Создать сценарий'}</button></footer></section></div>`;
+    return `<div class="modal"><section class="dialog scenario-dialog-v4 clean-scenario-dialog"><header class="dialog-head"><div><span class="tag ${goalMode?'purple':'amber'}">${goalMode?'Сценарий целей':'Сценарий контрольных точек'}</span><h2>${existing?'Изменить сценарий':'Новый сценарий'}</h2><p>Настройте правило создания для выбранных веток процесса.</p></div><button class="btn icon-only" data-action="closeScenario">×</button></header><div class="dialog-body"><section class="scenario-scope"><div><b>Для каких веток работает сценарий</b><p class="muted">Можно создать отдельный сценарий для любой должности, группы или общего контура.</p></div><div class="branch-checks">${branches.map(branch=>`<label><input type="checkbox" data-scenario-branch value="${branch.id}" ${selected.includes(branch.id)?'checked':''}> ${safe4(branch.name)}</label>`).join('')}</div></section>${goalMode?`<div class="form-grid"><div class="field"><label>Кто создаёт цели</label><select data-scenario-creator><option ${existing?.creator==='Администратор'?'selected':''}>Администратор</option><option ${existing?.creator==='Руководитель'?'selected':''}>Руководитель</option><option ${existing?.creator==='Сотрудник'?'selected':''}>Сотрудник</option></select></div><div class="field"><label>Когда создать цели</label><select data-scenario-timing><option>При назначении плана</option><option ${existing?.timing==='В первый день'?'selected':''}>В первый день</option><option ${existing?.timing==='До 5 дня плана'?'selected':''}>До 5 дня плана</option></select></div></div>${window.SkillazObjects?.goalSettings(existing)||''}`:`<div class="form-grid"><div class="field"><label>Ответственный за КТ</label><select data-scenario-creator><option ${existing?.creator==='Руководитель'?'selected':''}>Руководитель</option><option ${existing?.creator==='Наставник'?'selected':''}>Наставник</option><option ${existing?.creator==='Бизнес-роль'?'selected':''}>Бизнес-роль</option></select></div><div class="field"><label>Когда запускать</label><select data-scenario-timing><option>По срокам шаблонов КТ</option><option ${existing?.timing==='После завершения этапа'?'selected':''}>После завершения этапа</option><option ${existing?.timing==='По результату элемента'?'selected':''}>По результату элемента</option></select></div></div>`}<section class="scenario-catalog-note"><b>${goalMode?'Цели':'Шаблоны контрольных точек'} добавляются отдельно</b><span>Используйте кнопку «＋ Добавить» на канве и выберите ${goalMode?'«Цель»':'«Контрольную точку»'} из каталога. Так один сценарий можно наполнить разными шаблонами.</span></section></div><footer class="dialog-foot"><button class="btn" data-action="closeScenario">Отмена</button><button class="btn primary" data-action="saveScenario" data-scenario-kind="${goalMode?'goal':'kt'}" data-scenario-index="${match?match[1]:''}">${existing?'Сохранить':'Создать сценарий'}</button></footer></section></div>`;
   };
   checkpointRail = () => {
     state.ktOpen = true;
@@ -273,6 +277,7 @@
     surface.querySelector('.goal-link-layer')?.remove();
     const links = [];
     document.querySelectorAll('.goal-template-card[data-goal-template-id]').forEach(card=>{
+      if(state.selectedGoal?.id!==card.dataset.goalTemplateId||state.selectedGoal?.key!==card.dataset.placementKey)return;
       const template = (state.goalPlacements[card.dataset.placementKey]||[]).find(item=>item.id===card.dataset.goalTemplateId);
       (template?.links||[]).forEach(link=>{
         const target = link.cell
@@ -307,7 +312,7 @@
     if (document.querySelector('.live-scenario-contents')) document.querySelectorAll('.ai-applied-list').forEach(node => node.remove());
     document.querySelectorAll('[data-template-scenario-key]').forEach(card => {
       card.onclick = event => {
-        if (event.target.closest('[data-edit-scenario],[data-link-goal],[data-unlink-goal],[data-remove-template]')) return;
+        if (event.target.closest('[data-edit-scenario],[data-link-goal],[data-unlink-goal],[data-remove-template],[data-open-object],[data-add-goal-assessment],.goal-template-card')) return;
         const kind = card.dataset.templateScenarioKind;
         const key = card.dataset.templateScenarioKey;
         const record = scenarioRecords(kind).find(item=>item.key===key);
@@ -465,7 +470,7 @@
       if (event.target.closest('[data-close-template-picker]')) { event.preventDefault(); state.templateScenarioPicker=null; render(); return; }
       if (event.target.closest('[data-clear-active-scenario]')) { event.preventDefault(); state.activeTemplateScenario=null; state.catalogTargetScenario=null; render(); return; }
       const linkButton = event.target.closest('[data-link-goal]');
-      if (linkButton) { event.preventDefault(); event.stopImmediatePropagation(); state.goalLinkMode={templateId:linkButton.dataset.linkGoal,key:linkButton.dataset.linkKey}; render(); toast('Теперь нажмите на карточку действия в этапе'); return; }
+      if (linkButton) { event.preventDefault(); event.stopImmediatePropagation(); state.goalLinkMode={templateId:linkButton.dataset.linkGoal,key:linkButton.dataset.linkKey};state.selectedGoal={id:linkButton.dataset.linkGoal,key:linkButton.dataset.linkKey}; render(); toast('Теперь нажмите на карточку действия в этапе'); return; }
       const unlinkButton = event.target.closest('[data-unlink-goal]');
       if (unlinkButton) {
         event.preventDefault(); event.stopImmediatePropagation();
@@ -496,7 +501,9 @@
       const scenario = {
         branches:branchIds,
         creator:document.querySelector('[data-scenario-creator]')?.value || (save.dataset.scenarioKind==='goal'?'Администратор':'Руководитель'),
-        timing:document.querySelector('[data-scenario-timing]')?.value || 'При назначении плана'
+        timing:document.querySelector('[data-scenario-timing]')?.value || 'При назначении плана',
+        managerReview:document.querySelector('[data-manager-review]')?.checked||false,
+        publicationDays:Math.max(1,Number(document.querySelector('[data-publication-days]')?.value)||7)
       };
       const collection = save.dataset.scenarioKind === 'goal' ? state.goalScenarios : state.ktScenarios;
       const index = save.dataset.scenarioIndex === '' ? -1 : Number(save.dataset.scenarioIndex);
@@ -594,4 +601,5 @@
     state.newKtScenario = true;
   }
   render();
+  window.SkillazObjects?.install();
 })();

@@ -151,13 +151,13 @@
       const suppressDefault = trees.some(orgHasContextMatch);
       return `<div class="local-overlay scope-picker-overlay" role="dialog" aria-modal="true" aria-label="Выбор оргструктуры"><section class="scope-picker-card org-tree-card"><header><div><span class="tag blue">Базовый охват</span><h2>Оргструктура</h2><p>Показаны подразделения, подходящие контексту процесса. Можно раскрывать узлы и выбирать дочерние подразделения.</p></div><button class="btn icon-only" data-local-action="close-scope-picker">×</button></header><div class="directory-context"><b>Подобрано по контексту</b><span>${trees.map(tree=>tree.name).join(', ')}</span></div><div class="org-tree" role="tree">${trees.map((tree,index)=>renderOrgNode(tree,0,index,suppressDefault)).join('')}</div><footer><button class="btn" data-local-action="close-scope-picker">Отмена</button><button class="btn primary" data-local-action="apply-scope-picker">Применить выбор</button></footer></section></div>`;
     }
-    const cityRows = (directory?.regions || []).flatMap(region => region.cities.map(city=>({id:`${region.id}-city-${normalizedScope(city)}`,label:city,meta:`Город · ${region.name} · ${region.district}`,preselected:audienceMentions(city)}))).filter(row=>row.preselected);
+    const cityRows = (directory?.regions || []).flatMap(region => region.cities.map(city=>({id:`${region.id}-city-${normalizedScope(city)}`,label:city,meta:`Город · ${region.name} · ${region.district}`,preselected:audienceMentions(city)}))).filter(row=>row.preselected||state.scopeSelections.location?.includes(row.id));
     const rows = state.scopePicker === 'role' ? (directory?.relevantPositions(query,18)||[]).map(row=>({id:row.id,label:row.title,meta:`${domainLabel(row.domain)} · ${levelLabel(row.level)}`,preselected:audienceMentions(row.title)||audienceMatches(row.title)}))
       : state.scopePicker === 'group' ? (directory?.relevantGroups(query,14)||[]).map(row=>({id:row.id,label:row.name,meta:row.rule}))
-      : [...cityRows,{id:'all-regions',label:'Все регионы присутствия',meta:'Все площадки выбранной структуры'},...(directory?.relevantRegions(query,18)||[]).map(row=>({id:row.id,label:row.name,meta:`${row.district} · ${row.cities.slice(0,4).join(', ')}`}))];
+      : [...cityRows,{id:'all-regions',label:'Все регионы присутствия',meta:'Все площадки выбранной структуры'},...(directory?.relevantRegions(query,100)||[]).map(row=>({id:row.id,label:row.name,meta:`${row.district} · ${row.cities.slice(0,4).join(', ')}`}))];
     const title = {role:'Должности',group:'Группы сотрудников',location:'Территория'}[state.scopePicker];
     const suppressDefault = state.scopePicker === 'location' ? (cityRows.length > 0 || rows.some(row=>audienceMatches(`${row.label} ${row.meta}`))) : state.scopePicker === 'role' ? rows.some(row=>row.preselected) : false;
-    const rowChecked = (row,index) => scopeWasChosen(state.scopePicker) ? state.scopeSelections[state.scopePicker]?.includes(row.id) : row.preselected || (state.scopePicker==='location'&&cityRows.length ? false : checkedScope(state.scopePicker,row.id,row.label,index,suppressDefault));
+    const rowChecked = (row,index) => scopeWasChosen(state.scopePicker) ? (state.scopeSelections[state.scopePicker]?.includes(row.id)||(state.scopePicker==='location'&&state.scopeSelections.location?.includes('all-regions'))) : row.preselected || (state.scopePicker==='location'&&cityRows.length ? false : checkedScope(state.scopePicker,row.id,row.label,index,suppressDefault));
     return `<div class="local-overlay scope-picker-overlay" role="dialog" aria-modal="true" aria-label="Выбор охвата"><section class="scope-picker-card reference-picker-card"><header><div><span class="tag blue">Базовый охват</span><h2>${title}</h2><p>Справочник отфильтрован по должностям, структуре и сценарию из диалога с AI.</p></div><button class="btn icon-only" data-local-action="close-scope-picker">×</button></header><div class="directory-context"><b>Найдено по контексту</b><span>${rows.length} значений · первые варианты рекомендованы</span></div><div class="scope-options reference-options">${rows.map((row,index)=>`<label><input type="checkbox" data-scope-value="${row.id}" data-scope-label="${row.label}" ${rowChecked(row,index)?'checked':''}><span><b>${row.label}</b><small>${row.meta}</small></span></label>`).join('')}</div><footer><button class="btn" data-local-action="close-scope-picker">Отмена</button><button class="btn primary" data-local-action="apply-scope-picker">Применить выбор</button></footer></section></div>`;
   };
 
@@ -174,6 +174,12 @@
       if (state.launchConfigured) state.assistantAnswers[key] = field.value;
     });
     document.addEventListener('change', event => {
+      const scopeInput=event.target.closest('[data-scope-value]');
+      if(scopeInput&&state.scopePicker==='location'){
+        const all=document.querySelector('[data-scope-value="all-regions"]');
+        if(scopeInput===all)document.querySelectorAll('[data-scope-value]').forEach(input=>input.checked=all.checked);
+        else if(all&&!scopeInput.checked)all.checked=false;
+      }
       const field = event.target.closest('[data-launch-field]');
       if (!field) return;
       const key = field.dataset.launchField;

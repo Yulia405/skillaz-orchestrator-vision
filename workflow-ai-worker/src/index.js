@@ -1,3 +1,4 @@
+import '../../workflow-v3-assets/scope-model.js';
 const ALLOWED_ORIGINS = new Set(['https://yulia405.github.io']);
 const RATE = new Map();
 
@@ -10,6 +11,9 @@ const TASK_INSTRUCTIONS = {
   checkpoints: `Ты формируешь 2-4 контрольные точки процесса Skillaz для должностей и веток, выбранных в текущем сценарии КТ. Сначала определи рабочую функцию каждой должности. Каждая КТ должна иметь branchId, срок, участников, проверяемый результат, содержательную должностную повестку agenda, 2-4 вопроса пульса pulse о реальных задачах этой роли и реакцию onFail. Повестка и пульс должны различаться для любых массовых и офисных функций; не копируй содержание одной профессии в другую.`
 };
 
+TASK_INSTRUCTIONS.checkpoints += ' Контрольная точка — отдельная встреча, а не цель, тест или оценочный лист. agenda: темы обсуждения прогресса по реальным действиям выбранной ветки, трудности, поддержка и договорённости. pulse: 2-5 вопросов сотруднику перед встречей; первые два по шкале уверенности, остальные открытые. showBeforeDays: за сколько дней показать встречу (обычно 3). linkedItemIds: только точные ID действий из existingItems для обсуждения на встрече. Не формулируй КТ как измеримую цель.';
+TASK_INSTRUCTIONS.goals += ' Дополнительно верни subgoals:[{title}] — 1-3 промежуточных наблюдаемых результата для каждой цели. Результат не должен быть повтором названия курса.';
+TASK_INSTRUCTIONS.elements += ' Для практической проверки навыков используй опубликованные оценочные листы type assessment и их sourceId. assessment отличается от test: это наблюдение оценивающего по критериям на рабочем месте.';
 const DIALOG_POLICY = `Правила вариантов ответа в suggestions: это 3-4 коротких, но полноценных ответа пользователя на текущий вопрос. Каждый вариант должен быть построен из конкретного контекста запроса, уже собранных полей и переданных каталогов. Не повторяй варианты из предыдущих ходов. Не используй абстрактные табы вроде «Вариант 1», «Другое» или одинаковые универсальные наборы. Для логистики называй релевантные роли, события и результаты логистики; для розницы, производства, офиса и руководителей формируй другие варианты. Нажатие на вариант должно давать достаточно данных, чтобы заполнить соответствующее поле без дополнительного уточнения.`;
 
 function cors(origin) {
@@ -47,13 +51,17 @@ function launchResult(result, input) {
   ].filter(([needle]) => text.includes(needle)).map(([,label]) => label);
   const scopePattern = /москв|петербург|казан|сочи|курск|ор[её]л|екатерин|новосибир|регион|город|территор|федерал|област|край|республик|округ|по всей россии|вся россия|все регионы/;
   const scopeMessage = scopePattern.test(input.userMessage.toLowerCase());
-  const scopeKnown = scopePattern.test(userText);
+  const parsedScope=globalThis.SkillazScope.parse(input.userMessage,input.catalog?.territories||[]);
+  const priorScope=input.context?.scope;
+  const scopeKnown = Boolean(parsedScope.confirmed || priorScope?.confirmed || globalThis.SkillazScope.parse(userText,input.catalog?.territories||[]).confirmed);
+  result.scope=parsedScope.confirmed?parsedScope:priorScope;
+  if(result.scope?.label && !String(updates.audience||'').includes(result.scope.label)) updates.audience=[updates.audience||previous.audience,result.scope.label].filter(Boolean).join(' · ');
 
   if (!updates.scenario) updates.scenario = /оффер|преборд|до выход/.test(text) ? 'Пребординг' : /нов.*рол|перевод|должност.*измен/.test(text) ? 'Вход в новую роль' : 'Новый сотрудник';
   if (!updates.event) updates.event = updates.scenario === 'Пребординг' ? 'ATS · оффер принят' : updates.scenario === 'Вход в новую роль' ? 'Мастер-система · должность изменилась' : /ручн|администратор/.test(text) ? 'Администратор · ручной запуск' : 'Мастер-система · сотрудник вышел';
   if (/в первый рабочий день|в день выхода|в момент события/.test(userText)) updates.timing='В момент события';
   else if (!updates.timing) updates.timing = /за \d+ дн\w* до (?:событ|выход)|до событ|до выход/.test(text) ? 'За 5 дней до события' : /через.*день.*после (?:событ|выход)/.test(text) ? 'Через 1 день после события' : 'В момент события';
-  if (!updates.audience && roles.length) updates.audience = roles.join(', ');
+  if (!updates.audience && roles.length) updates.audience = userHistory.match(/(?:для|адаптац[а-я]*)\s+([^.!?]+)/i)?.[1]?.trim() || input.userMessage.match(/(?:для|адаптац[а-я]*)\s+([^.!?]+)/i)?.[1]?.trim() || roles.join(', ');
   if (updates.audience && scopeMessage) {
     const territorySentence=input.userMessage.split(/[.!?]/).find(sentence=>scopePattern.test(sentence.toLowerCase()));
     const territory=territorySentence?.match(/\sв\s([^.!?]+)$/i)?.[1]?.trim();
@@ -62,7 +70,7 @@ function launchResult(result, input) {
   if (/раздел|разн.*пут|ветк|по рол|отдельн.*пут/.test(text)) updates.pathType = 'Общая часть + варианты по условиям';
   else if (!updates.pathType) updates.pathType = roles.length > 1 ? 'Общая часть + варианты по условиям' : 'Один общий путь';
   if (!updates.result && /самостоятель|безопас|допуск|осво|готовност|рабоч.*результ/.test(input.userMessage.toLowerCase())) {
-    const explicit = input.userMessage.match(/результат\s*[—:=-]*\s*(.+)$/i)?.[1]?.trim();
+    const explicit = input.userMessage.match(/результат\s*[—:=-]*\s*([^.!?]+)/i)?.[1]?.trim();
     updates.result = explicit || input.userMessage.split(/[.!?]/).find(sentence=>/самостоятель|безопас|допуск|осво|готовност|рабоч.*результ/i.test(sentence))?.trim() || input.userMessage;
   }
 
@@ -159,7 +167,7 @@ export default {
     const task = String(body.task || '');
     if (!TASK_INSTRUCTIONS[task]) return json({error:'Unknown assistant task'},400,origin);
 
-    const contract = `Ответь только валидным JSON без markdown. Общий формат: {"message":"краткое подтверждение или результат","question":"следующий вопрос или пустая строка","hint":"зачем нужен вопрос","suggestions":["2-4 контекстных варианта"],"ready":false,"updates":{},"roles":[],"process":null,"proposals":[]}. updates может содержать scenario,result,event,timing,audience,pathType,coordinator. roles: [{name,assignmentType,purpose,assignmentRule}]. process: {title,stages:[{id,name,days}],branches:[{id,name,condition}],items:[{id,title,type,branchId,stageId,assignee,sourceId,outcomes:[{if,then}]}],goals:[{title,result,day,branchId,linkedItemIds}],checkpoints:[{title,day,branchId,result,agenda,pulse,participants,onFail}],notifications:[{event,recipient,message}]}. Для task=goals proposals: [{title,type:"goal",branchId,result,day,linkedItemIds,reason}]. Для task=checkpoints proposals: [{title,type:"checkpoint",branchId,day,result,agenda,pulse,participants,onFail,reason}]. pulse — строка из 2-4 вопросов, разделённых точкой с запятой. Не выдумывай sourceId: бери его только из каталога.`;
+    const contract = `Ответь только валидным JSON без markdown. Общий формат: {"message":"краткое подтверждение или результат","question":"следующий вопрос или пустая строка","hint":"зачем нужен вопрос","suggestions":["2-4 контекстных варианта"],"ready":false,"updates":{},"roles":[],"process":null,"proposals":[]}. updates может содержать scenario,result,event,timing,audience,pathType,coordinator. roles: [{name,assignmentType,purpose,assignmentRule}]. process: {title,stages:[{id,name,days}],branches:[{id,name,condition}],items:[{id,title,type,branchId,stageId,assignee,sourceId,outcomes:[{if,then}]}],goals:[{title,result,day,branchId,subgoals:[{title}],linkedItemIds}],checkpoints:[{title,day,branchId,showBeforeDays,agenda,pulse,participants,linkedItemIds,onFail}],notifications:[{event,recipient,message}]}. Для task=goals proposals: [{title,type:"goal",branchId,result,day,subgoals,linkedItemIds,reason}]. Для task=checkpoints proposals: [{title,type:"checkpoint",branchId,day,showBeforeDays,agenda,pulse,participants,linkedItemIds,onFail,reason}]. pulse — строка из 2-4 вопросов, разделённых точкой с запятой. Не выдумывай sourceId: бери его только из каталога.`;
     const input = {
       task,
       userMessage:String(body.message || '').slice(0,5000),
@@ -168,9 +176,9 @@ export default {
       catalog:body.catalog || {}
     };
     const proposalContract = task === 'goals'
-      ? 'Верни только {"message":"краткое описание","proposals":[{title,type:"goal",branchId,result,day,linkedItemIds,reason}]}. Не повторяй предложения в updates, process или других полях.'
+      ? 'Верни только {"message":"краткое описание","proposals":[{title,type:"goal",branchId,result,day,subgoals,linkedItemIds,reason}]}. Не повторяй предложения в updates, process или других полях.'
       : task === 'checkpoints'
-      ? 'Верни только {"message":"краткое описание","proposals":[{title,type:"checkpoint",branchId,day,result,agenda,pulse,participants,onFail,reason}]}. pulse — строка из 2-4 вопросов через точку с запятой. Не повторяй предложения в других полях.'
+      ? 'Верни только {"message":"краткое описание","proposals":[{title,type:"checkpoint",branchId,day,showBeforeDays,agenda,pulse,participants,linkedItemIds,onFail,reason}]}. pulse — строка из 2-4 вопросов через точку с запятой. Не повторяй предложения в других полях.'
       : task === 'elements'
       ? 'Верни только {"message":"краткое описание","proposals":[{title,type,branchId,stageId,sourceId,reason,outcomes:[{if,then}]}]}. sourceId разрешён только из каталога. Не повторяй предложения в других полях.'
       : contract;
