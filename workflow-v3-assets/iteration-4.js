@@ -132,11 +132,12 @@
   const labelByType = { course:'Курс / программа', task:'Задача', article:'Статья', file:'Файл', test:'Тест', survey:'Опрос', action:'Системное действие', assessment:'Оценочный лист', checkpoint:'Шаблон контрольной точки', goal:'Шаблон цели', meeting:'Встреча' };
   const elementRows = () => {
     const db = window.SkillazDemoDB?.catalogs || {};
-    const production = window.SkillazProductionCatalog?.elements || [];
+    const learning = window.SkillazLearningDemos?.active();
+    const production = learning ? window.SkillazLearningDemos.catalog() : (window.SkillazProductionCatalog?.elements || []);
     const scenarioBranchIds = state.activeTemplateScenario ? (scenarioRecords(state.activeTemplateScenario.kind).find(item=>item.key===state.activeTemplateScenario.key)?.scenario?.branches||[]) : [];
     const catalogQuery = (scenarioBranchIds.length ? scenarioBranchIds.map(id=>branches.find(branch=>branch.id===id)?.name) : [state.processTitle,state.assistantAnswers?.audience,state.assistantAnswers?.result]).filter(Boolean).join(' ');
     const contextualProduction = ['goal','checkpoint'].includes(state.cleanCatalogType) && window.SkillazProductionCatalog?.relevantElements ? window.SkillazProductionCatalog.relevantElements(catalogQuery,production.length) : production;
-    const order = state.cleanCatalogType ? [state.cleanCatalogType] : ['course','article','file','task','test','survey','assessment','action','goal','checkpoint'];
+    const order = state.cleanCatalogType ? [state.cleanCatalogType] : learning ? ['course','article','file','task','test','survey','assessment'] : ['course','article','file','task','test','survey','assessment','action','goal','checkpoint'];
     const source = {course:'LMS',article:'База знаний',file:'Файлы клиента',task:'Шаблоны задач',test:'Оценка знаний',survey:'Опросы',assessment:'Каталог оценочных листов',action:'Skillaz',goal:'Каталог целей',checkpoint:'Каталог КТ'};
     const usage = {course:'Назначается сотруднику',article:'Открывается в плане',file:'Доступен для скачивания',task:'Создаёт задачу исполнителю',test:'Сохраняет результат',survey:'Собирает обратную связь',assessment:'Проверка навыка на рабочем месте',action:'Выполняется автоматически',goal:'Создаётся по сценарию целей',checkpoint:'Запускается по сценарию КТ'};
     return order.flatMap(type => {

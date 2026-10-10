@@ -172,7 +172,8 @@ async function aiGenerate() {
       },
       history:[], catalog:window.SkillazLiveAI.context(query)
     });
-    const proposals = Array.isArray(result.proposals) ? result.proposals.filter(proposal=>proposal?.title&&(aiState.mode!=='elements'||proposal.type!=='action')) : [];
+    const learning = window.SkillazLearningDemos?.active();
+    const proposals = Array.isArray(result.proposals) ? result.proposals.filter(proposal=>proposal?.title&&(aiState.mode!=='elements'||(learning?['course','article','file','task','test','survey','assessment'].includes(proposal.type):proposal.type!=='action'))).filter(proposal=>!learning||!Object.entries(state.items).filter(([cell])=>cell.startsWith(proposal.branchId+'-')).some(([,rows])=>rows.some(n=>n.title===proposal.title||(proposal.sourceId&&n.sourceId===proposal.sourceId)))) : [];
     if (proposals.length) {
       aiState.proposals = proposals.map((proposal,index) => {
         const branchId = scope.includes(proposal.branchId) ? proposal.branchId : scope[index % scope.length];
@@ -196,7 +197,7 @@ async function aiGenerate() {
       if (aiState.mode === 'checkpoints' && aiState.proposals.length < Math.min(8,scope.length*2)) {
         aiKtProposals().forEach(proposal=>{if(aiState.proposals.length<Math.min(8,scope.length*2)&&!aiState.proposals.some(item=>item.branchId===proposal.branchId&&item.day===proposal.day))aiState.proposals.push(proposal);});
       }
-    } else aiState.proposals = fallback();
+    } else { aiState.proposals = fallback(); aiState.liveFallback = true; }
   } catch (error) {
     aiState.proposals = fallback();
     aiState.liveFallback = true;
@@ -211,6 +212,9 @@ async function aiGenerate() {
 }
 
 function supplementElementProposals(current, scope, selectedStages, query) {
+  // Learning programmes already have a complete curriculum. Do not pad live
+  // answers with unrelated adaptation templates or duplicate existing lessons.
+  if (window.SkillazLearningDemos?.active()) return current;
   const catalog = window.SkillazProductionCatalog;
   if (!catalog || !scope.length || !selectedStages.length) return current;
   const result = [...current];
